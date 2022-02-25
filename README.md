@@ -1,2 +1,3 @@
-# fisyx2d
-javascript physics engine from scratch
+# fisyx2d.js
+javascript physics engine made from vanilla javascript
+
