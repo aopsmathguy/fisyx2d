@@ -250,7 +250,8 @@ f2.World = class{
   }
   intersect(A, B){
     var slop = 0.03;
-    var percent = 0.5;
+    var percent = 0.4;
+    var beta = 10;
 
     var APoly = A.generateShape();
     var BPoly = B.generateShape();
@@ -296,7 +297,7 @@ f2.World = class{
     var elasticity = f2.combinedElasticity(edgeBody.elasticity, vertBody.elasticity);
     var dvel = -(1 + elasticity) * normRel;
 
-    var imp = f2.solveVelocity(edgeBody,vertBody,rEdge,rVert,normal, dvel);
+    var imp = f2.solveVelocity(edgeBody,vertBody,rEdge,rVert,normal, beta * penetration + dvel);
     f2.applyImpulses(edgeBody, vertBody, rEdge, rVert, normal.multiply(imp));
 
         var tangent = rel.subtract(normal.multiply(rel.dot(normal))).normalize();
@@ -361,6 +362,7 @@ f2.World = class{
     }
   }
   getDynamicIntersects(body){
+    
     var grid = this.getGrid(body.position);
     var s = new Set();
     for (var x = grid.x - 1; x <= grid.x + 1; x++){
@@ -397,23 +399,23 @@ f2.World = class{
     }
     var count = 0;
     // while(moved.size > 0){
-    for (var k = 0; k < 4 && moved.size > 0; k++){
+    for (var k = 0; k < 10 && moved.size > 0; k++){
       var newMoved = new Set();
       moved.forEach((i) => {
         var myConstraints = this.constraints[i];
         for (var j in myConstraints){
             var c = myConstraints[j];
             for (var k = 0; k < c.length; k++){
-
                 var m = c[k].solve();
                 if (m){
+                    if (this.dynamicBodies[j]){
+                        newMoved.add(j);
+                    }
                     newMoved.add(i);
-                    newMoved.add(j);
                 }
             }
 
         }
-
         var body = this.dynamicBodies[i];
         var dynamicInt = this.getDynamicIntersects(body);
         for (var j in dynamicInt){
@@ -787,7 +789,8 @@ f2.Constraint = class {
     }
     solve(){
         var slop = 0.03;
-        var percent = 0.5;
+        var percent = 0.4;
+        var beta = 10;
         var p1 = this.body1.getPosition(this.r1);
         var p2 = this.body2.getPosition(this.r2);
         var r1 = p1.subtract(this.body1.position);
@@ -800,7 +803,7 @@ f2.Constraint = class {
             return false;
         }
         f2.solvePosition(this.body1, this.body2, r1, r2, normal, percent * pen);
-        var imp = f2.solveVelocity(this.body1, this.body2, r1, r2, normal, -v1.subtract(v2).dot(normal));
+        var imp = f2.solveVelocity(this.body1, this.body2, r1, r2, normal, beta * pen-v1.subtract(v2).dot(normal));
         f2.applyImpulses(this.body1, this.body2, r1, r2, normal.multiply(imp));
         return true;
     }
