@@ -1,31 +1,4 @@
 var f2 = {};
-f2.TwoWayMap = class{
-    constructor() {
-       this.map = new Map();
-       this.reverseMap = new Map();
-    }
-    getValue(key) { return this.map.get(key); }
-    getKey(v) { return this.reverseMap.get(v); }
-    add(k, v){
-      this.map.set(k, v);
-      this.reverseMap.set(v, k);
-    }
-    removeKey(k){
-      var v = this.getValue(k);
-      this.map.delete(k);
-      this.reverseMap.delete(v);
-      return v;
-    }
-    removeValue(v){
-      var k = this.getKey(v);
-      this.reverseMap.delete(v);
-      this.map.delete(k);
-      return k;
-    }
-    forEach(func){
-      this.map.forEach(func);
-    }
-};
 f2.HashGrid = class{
   obj;
   constructor(){
@@ -180,17 +153,30 @@ f2.World = class{
   staticBodiesRegions;
   dynamicBodiesRegions;
 
-  joints;
+  constraints;
   constructor(){
     this.allBodies = {};
     this.nextId = 0;
-      
+
     this.staticBodies = {};
 
     this.dynamicBodies = {};
 
     this.staticBodiesRegions = new f2.HashGrid();
     this.dynamicBodiesRegions = new f2.HashGrid();
+
+    this.constraints = {};
+  }
+  addConstraint(c){
+      var bid1 = c.body1.id;
+      var bid2 = c.body2.id;
+      this.constraints[bid1] = this.constraints[bid1] || {};
+      this.constraints[bid1][bid2] = this.constraints[bid1][bid2] || [];
+      this.constraints[bid1][bid2].push(c);
+
+      this.constraints[bid2] = this.constraints[bid2] || {};
+      this.constraints[bid2][bid1] = this.constraints[bid2][bid1] || [];
+      this.constraints[bid2][bid1].push(c);
   }
   dimensionsInMeters(){
     return (new f2.Vec2(innerWidth, innerHeight)).multiply(1/this.scale);
@@ -234,6 +220,14 @@ f2.World = class{
         });
       }
     }
+    for (var i in this.constraints){
+        for (var j in this.constraints[i]){
+            var c = this.constraints[i][j];
+            for (var k = 0; k < c.length; k++){
+                c[k].display(ctx);
+            }
+        }
+    }
   }
   display(ctx){
     ctx.lineWidth = 0.1;
@@ -245,26 +239,18 @@ f2.World = class{
     for (var i in this.dynamicBodies){
         this.dynamicBodies[i].display(ctx);
     }
-  }
-  solvePosition(A,B,rA,rB, n, dlength){
-    var normCombinedInvMass = 1/A.mass + 1/B.mass + n.cross(rA)**2/A.inertia + n.cross(rB)**2/B.inertia;
-    var massMove = (dlength)/normCombinedInvMass;
-    A.applyMassDisplacement(n.multiply(massMove), rA);
-    B.applyMassDisplacement(n.multiply(-massMove), rB);
-    return massMove;
-  }
-  solveVelocity(A,B,rA,rB, n, dvel){
-    var normCombinedInvMass = 1/A.mass + 1/B.mass + n.cross(rA)**2/A.inertia + n.cross(rB)**2/B.inertia;
-    var inertia = (dvel)/normCombinedInvMass;
-    return inertia;
-  }
-  applyImpulses(A,B, rA, rB, imp){
-    A.applyImpulse(imp, rA);
-    B.applyImpulse(imp.multiply(-1), rB);
+    for (var i in this.constraints){
+        for (var j in this.constraints[i]){
+            var c = this.constraints[i][j];
+            for (var k = 0; k < c.length; k++){
+                c[k].display(ctx);
+            }
+        }
+    }
   }
   intersect(A, B){
     var slop = 0.03;
-    var percent = 0.3;
+    var percent = 0.5;
 
     var APoly = A.generateShape();
     var BPoly = B.generateShape();
@@ -295,7 +281,7 @@ f2.World = class{
     var rEdge = edge.subtract(edgeBody.position);
     var rVert = vertex.subtract(vertBody.position);
 
-    this.solvePosition(edgeBody,vertBody,rEdge,rVert,normal, percent*penetration);
+    f2.solvePosition(edgeBody,vertBody,rEdge,rVert,normal, percent*penetration);
 
 
     var vEdge = edgeBody.getVelocity(rEdge);
@@ -306,30 +292,24 @@ f2.World = class{
     if (normRel < 0){
       return true;
     }
-//     var p1 = edgeBody.position.add(rEdge);
-//     var p2 = vertBody.position.add(rVert);
-
-    // debugLine(edgeBody.position, p1);
-    // debugLine(vertBody.position, p2);
-    // debugDot(p1);
-    // debugDot(p2);
 
     var elasticity = f2.combinedElasticity(edgeBody.elasticity, vertBody.elasticity);
     var dvel = -(1 + elasticity) * normRel;
 
-    var imp = this.solveVelocity(edgeBody,vertBody,rEdge,rVert,normal, dvel);
-    this.applyImpulses(edgeBody, vertBody, rEdge, rVert, normal.multiply(imp));
+    var imp = f2.solveVelocity(edgeBody,vertBody,rEdge,rVert,normal, dvel);
+    f2.applyImpulses(edgeBody, vertBody, rEdge, rVert, normal.multiply(imp));
 
-    var tangent = rel.subtract(normal.multiply(rel.dot(normal))).normalize();
-    var relVelAlongTangent =  tangent.dot(rel);
+        var tangent = rel.subtract(normal.multiply(rel.dot(normal))).normalize();
+        // var tangent = (rel.dot(normal) < 0 ? normal.crossZ(1) : normal.crossZ(-1));
+
+    var relVelAlongTangent =  rel.dot(tangent);
     var mu = f2.combinedFrictionCoef(edgeBody.sFriction, vertBody.sFriction)
-    var fricImp;
-    var tImp = this.solveVelocity(edgeBody,vertBody,rEdge,rVert,tangent, -relVelAlongTangent);
-    if (Math.abs(tImp) > Math.abs(imp) * mu){
+    var tImp = f2.solveVelocity(edgeBody,vertBody,rEdge,rVert,tangent, -relVelAlongTangent);
+    if (Math.abs(tImp) > - imp* mu){
       var dmu = f2.combinedFrictionCoef(edgeBody.kFriction, vertBody.kFriction);
       tImp = imp * dmu;
     }
-    this.applyImpulses(edgeBody, vertBody, rEdge, rVert, tangent.multiply(tImp));
+    f2.applyImpulses(edgeBody, vertBody, rEdge, rVert, tangent.multiply(tImp));
     return true;
   }
   updateDynamicHashGrid(){
@@ -417,9 +397,23 @@ f2.World = class{
     }
     var count = 0;
     // while(moved.size > 0){
-    for (var k = 0; k < 5 && moved.size > 0; k++){
+    for (var k = 0; k < 4 && moved.size > 0; k++){
       var newMoved = new Set();
       moved.forEach((i) => {
+        var myConstraints = this.constraints[i];
+        for (var j in myConstraints){
+            var c = myConstraints[j];
+            for (var k = 0; k < c.length; k++){
+
+                var m = c[k].solve();
+                if (m){
+                    newMoved.add(i);
+                    newMoved.add(j);
+                }
+            }
+
+        }
+
         var body = this.dynamicBodies[i];
         var dynamicInt = this.getDynamicIntersects(body);
         for (var j in dynamicInt){
@@ -445,72 +439,10 @@ f2.World = class{
             newMoved.add(i);
           }
         });
-
       });
       moved = newMoved;
       count++;
     }
-  }
-};
-f2.Body = class{
-  id;
-
-  mass;
-  inertia;
-  kFriction;
-  sFriction;
-  elasticity;
-
-  position;
-  _velocity;
-  velocity;
-
-  angle;
-  _angleVelocity;
-  angleVelocity;
-  constructor(opts){
-    opts = opts || {};
-    this.id = opts.id || 0;
-      
-    this.mass = opts.mass || 1;
-    this.inertia = opts.inertia || 1;
-    this.kFriction = opts.kFriction || 0.1;
-    this.sFriction = opts.sFriction || 0.2;
-    this.elasticity = opts.elasticity || 0.3;
-
-    this.position = f2.Vec2.copy(opts.position) || new f2.Vec2(0,0);
-    this.velocity = f2.Vec2.copy(opts.velocity) || new f2.Vec2(0,0);
-    this._velocity = this.velocity;
-
-    this.angle = opts.angle || 0;
-    this.angleVelocity =  opts.angleVelocity || 0;
-    this._angleVelocity = this.angleVelocity;
-  }
-  static generateBody(opts){
-    if (opts.bodyType == "c"){
-      return new f2.CircleBody(opts);
-    }
-    else if (opts.bodyType == "p"){
-      return new f2.PolyBody(opts);
-    }
-  }
-  getVelocity(r){
-    return this.velocity.add(r.rCrossZ(this.angleVelocity));
-  }
-  applyImpulse(imp, r){
-    r = r || new f2.Vec2(0,0);
-    this.velocity = this.velocity.add(imp.multiply(1 / this.mass));
-    this.angleVelocity += 1/this.inertia * r.cross(imp);
-  }
-  applyMassDisplacement(massLength, r){
-    this.position = this.position.add(massLength.multiply(1 / this.mass));
-    this.angle += 1/this.inertia * r.cross(massLength);
-  }
-  integrate(t){
-    this.position = this.position.add(this.velocity.multiply(t));
-    this.angle += (this.angleVelocity)* t;
-    this._velocity = this.velocity;
-    this._angleVelocity = this.angleVelocity;
   }
 };
 f2.Circle = class{
@@ -664,6 +596,70 @@ f2.Polygon = class {
     }
   }
 };
+f2.Body = class{
+  id;
+
+  mass;
+  inertia;
+  kFriction;
+  sFriction;
+  elasticity;
+
+  position;
+  _velocity;
+  velocity;
+
+  angle;
+  _angleVelocity;
+  angleVelocity;
+  constructor(opts){
+    opts = opts || {};
+    this.id = opts.id || 0;
+
+    this.mass = opts.mass || 1;
+    this.inertia = opts.inertia || 1;
+    this.kFriction = opts.kFriction || 0.1;
+    this.sFriction = opts.sFriction || 0.2;
+    this.elasticity = opts.elasticity || 0.3;
+
+    this.position = f2.Vec2.copy(opts.position) || new f2.Vec2(0,0);
+    this.velocity = f2.Vec2.copy(opts.velocity) || new f2.Vec2(0,0);
+    this._velocity = this.velocity;
+
+    this.angle = opts.angle || 0;
+    this.angleVelocity =  opts.angleVelocity || 0;
+    this._angleVelocity = this.angleVelocity;
+  }
+  static generateBody(opts){
+    if (opts.bodyType == "c"){
+      return new f2.CircleBody(opts);
+    }
+    else if (opts.bodyType == "p"){
+      return new f2.PolyBody(opts);
+    }
+  }
+  getVelocity(r){
+    return this.velocity.add(r.rCrossZ(this.angleVelocity));
+  }
+  getPosition(r){
+    return this.position.add(r.rotate(this.angle));
+  }
+  applyImpulse(imp, r){
+    r = r || new f2.Vec2(0,0);
+    this.velocity = this.velocity.add(imp.multiply(1 / this.mass));
+    this.angleVelocity += 1/this.inertia * r.cross(imp);
+  }
+  applyMassDisplacement(massLength, r){
+    this.position = this.position.add(massLength.multiply(1 / this.mass));
+    this.angle += 1/this.inertia * r.cross(massLength);
+  }
+  integrate(t){
+    this.position = this.position.add(this.velocity.multiply(t));
+    this.angle += (this.angleVelocity)* t;
+    this._velocity = this.velocity;
+    this._angleVelocity = this.angleVelocity;
+  }
+};
 f2.CircleBody = class extends f2.Body{
   bodyType = "c";
   radius;
@@ -671,6 +667,7 @@ f2.CircleBody = class extends f2.Body{
     super(opts);
     opts = opts || {};
     this.radius = opts.radius || 1;
+    this.inertia = 1/2 * this.mass * this.radius**2 || this.inertia;
   }
   display(ctx){
     ctx.save();
@@ -763,6 +760,78 @@ f2.RectBody = class extends f2.PolyBody{
     this.inertia = 1/12 * this.mass * (this.length**2 + this.width**2);
   }
 };
+f2.Constraint = class {
+    body1;
+    body2;
+    r1;
+    r2;
+    length;
+    constructor(opts){
+        opts = opts || {};
+        this.body1 = opts.body1;
+        this.body2 = opts.body2;
+        this.r1 = opts.r1;
+        this.r2 = opts.r2;
+        this.length = opts.length || 0;
+    }
+    setBody1(body1, r1){
+        this.body1 = body1;
+        this.r1 = r1;
+    }
+    setBody2(body2, r2){
+        this.body2 = body2;
+        this.r2 = r2;
+    }
+    setLength(l){
+        this.length = l;
+    }
+    solve(){
+        var slop = 0.03;
+        var percent = 0.5;
+        var p1 = this.body1.getPosition(this.r1);
+        var p2 = this.body2.getPosition(this.r2);
+        var r1 = p1.subtract(this.body1.position);
+        var r2 = p2.subtract(this.body2.position);
+        var normal = p1.subtract(p2).normalize();
+        var v1 = this.body1.getVelocity(r1);
+        var v2 = this.body2.getVelocity(r2);
+        var pen = this.length - p1.subtract(p2).dot(normal);
+        if (Math.abs(pen) < slop){
+            return false;
+        }
+        f2.solvePosition(this.body1, this.body2, r1, r2, normal, percent * pen);
+        var imp = f2.solveVelocity(this.body1, this.body2, r1, r2, normal, -v1.subtract(v2).dot(normal));
+        f2.applyImpulses(this.body1, this.body2, r1, r2, normal.multiply(imp));
+        return true;
+    }
+    display(ctx){
+        var p1 = this.body1.getPosition(this.r1);
+        var p2 = this.body2.getPosition(this.r2);
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(p1.x, p1.y);
+        ctx.lineTo(p2.x, p2.y);
+        ctx.stroke();
+        ctx.restore();
+    }
+};
+
+f2.solvePosition = function(A,B,rA,rB, n, dlength){
+    var normCombinedInvMass = 1/A.mass + 1/B.mass + n.cross(rA)**2/A.inertia + n.cross(rB)**2/B.inertia;
+    var massMove = (dlength)/normCombinedInvMass;
+    A.applyMassDisplacement(n.multiply(massMove), rA);
+    B.applyMassDisplacement(n.multiply(-massMove), rB);
+    return massMove;
+}
+f2.solveVelocity = function(A,B,rA,rB, n, dvel){
+    var normCombinedInvMass = 1/A.mass + 1/B.mass + n.cross(rA)**2/A.inertia + n.cross(rB)**2/B.inertia;
+    var inertia = (dvel)/normCombinedInvMass;
+    return inertia;
+}
+f2.applyImpulses = function(A,B, rA, rB, imp){
+    A.applyImpulse(imp, rA);
+    B.applyImpulse(imp.multiply(-1), rB);
+}
 f2.combinedElasticity = function(e1, e2){
   return Math.min(e1, e2);
 };
