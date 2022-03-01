@@ -153,7 +153,10 @@ f2.World = class{
   staticBodiesRegions;
   dynamicBodiesRegions;
 
-  constraints;
+  rigidConstraints;
+  springConstraints;
+
+  skipIntersects;
   constructor(){
     this.allBodies = {};
     this.nextId = 0;
@@ -165,18 +168,42 @@ f2.World = class{
     this.staticBodiesRegions = new f2.HashGrid();
     this.dynamicBodiesRegions = new f2.HashGrid();
 
-    this.constraints = {};
+    this.rigidConstraints = {};
+    this.springConstraints = {};
+
+    this.skipIntersects = {};
+  }
+  skipIntersect(a, b){
+      this.skipIntersects[a.id] = this.skipIntersects[a.id] || {};
+      this.skipIntersects[a.id][b.id] = true;
+
+      this.skipIntersects[b.id] = this.skipIntersects[b.id] || {};
+      this.skipIntersects[b.id][a.id] = true;
+  }
+  unskipIntersect(a, b){
+      this.skipIntersects[a.id] = this.skipIntersects[a.id] || {};
+      this.skipIntersects[a.id][b.id] = false;
+
+      this.skipIntersects[b.id] = this.skipIntersects[b.id] || {};
+      this.skipIntersects[b.id][a.id] = false;
+  }
+  isSkipped(a,b){
+      if (this.skipIntersects[a.id]){
+          return (this.skipIntersects[a.id][b.id] != undefined && this.skipIntersects[a.id][b.id]);
+      } return false;
   }
   addConstraint(c){
       var bid1 = c.body1.id;
       var bid2 = c.body2.id;
-      this.constraints[bid1] = this.constraints[bid1] || {};
-      this.constraints[bid1][bid2] = this.constraints[bid1][bid2] || [];
-      this.constraints[bid1][bid2].push(c);
 
-      this.constraints[bid2] = this.constraints[bid2] || {};
-      this.constraints[bid2][bid1] = this.constraints[bid2][bid1] || [];
-      this.constraints[bid2][bid1].push(c);
+      var addTo = (c.rigid ? this.rigidConstraints : this.springConstraints);
+      addTo[bid1] = addTo[bid1] || {};
+      addTo[bid1][bid2] = addTo[bid1][bid2] || [];
+      addTo[bid1][bid2].push(c);
+
+      addTo[bid2] = addTo[bid2] || {};
+      addTo[bid2][bid1] = addTo[bid2][bid1] || [];
+      addTo[bid2][bid1].push(c);
   }
   dimensionsInMeters(){
     return (new f2.Vec2(innerWidth, innerHeight)).multiply(1/this.scale);
@@ -220,18 +247,26 @@ f2.World = class{
         });
       }
     }
-    for (var i in this.constraints){
-        for (var j in this.constraints[i]){
-            var c = this.constraints[i][j];
-            for (var k = 0; k < c.length; k++){
-                c[k].display(ctx);
-            }
-        }
-    }
+    // for (var i in this.rigidConstraints){
+    //     for (var j in this.rigidConstraints[i]){
+    //         var c = this.rigidConstraints[i][j];
+    //         for (var k = 0; k < c.length; k++){
+    //             c[k].display(ctx);
+    //         }
+    //     }
+    // }
+    // for (var i in this.springConstraints){
+    //     for (var j in this.springConstraints[i]){
+    //         var c = this.springConstraints[i][j];
+    //         for (var k = 0; k < c.length; k++){
+    //             c[k].display(ctx);
+    //         }
+    //     }
+    // }
   }
   display(ctx){
     ctx.lineWidth = 0.1;
-    ctx.strokeStyle = "#fff";
+    ctx.strokeStyle = "#000";
     ctx.fillStyle = "rgba(255,255,255,0)";
     for (var i in this.staticBodies){
         this.staticBodies[i].display(ctx);
@@ -239,79 +274,22 @@ f2.World = class{
     for (var i in this.dynamicBodies){
         this.dynamicBodies[i].display(ctx);
     }
-    for (var i in this.constraints){
-        for (var j in this.constraints[i]){
-            var c = this.constraints[i][j];
-            for (var k = 0; k < c.length; k++){
-                c[k].display(ctx);
-            }
-        }
-    }
-  }
-  intersect(A, B){
-    var slop = 0.03;
-    var percent = 0.4;
-    var beta = 10;
-
-    var APoly = A.generateShape();
-    var BPoly = B.generateShape();
-
-    var AEdge = APoly.findAxisOfLeastPen(BPoly);
-    var BEdge = BPoly.findAxisOfLeastPen(APoly);
-    var edgeBody;
-    var vertBody;
-    var intersectInfo;
-    if (AEdge.penetration > BEdge.penetration){
-      edgeBody = A;
-      vertBody = B;
-      intersectInfo = AEdge;
-    }
-    else{
-      edgeBody = B;
-      vertBody = A;
-      intersectInfo = BEdge;
-    }
-    var normal = intersectInfo.normal;
-    var penetration = intersectInfo.penetration;
-    if (penetration > -slop){
-      return false;
-    }
-    var vertex = intersectInfo.vertex;
-    var edge = intersectInfo.vertex.add(normal.multiply(-penetration));
-
-    var rEdge = edge.subtract(edgeBody.position);
-    var rVert = vertex.subtract(vertBody.position);
-
-    f2.solvePosition(edgeBody,vertBody,rEdge,rVert,normal, percent*penetration);
-
-
-    var vEdge = edgeBody.getVelocity(rEdge);
-    var vVert = vertBody.getVelocity(rVert);
-
-    var rel = vEdge.subtract(vVert);
-    var normRel = normal.dot(rel);
-    if (normRel < 0){
-      return true;
-    }
-
-    var elasticity = f2.combinedElasticity(edgeBody.elasticity, vertBody.elasticity);
-    var dvel = -(1 + elasticity) * normRel;
-
-    var imp = f2.solveVelocity(edgeBody,vertBody,rEdge,rVert,normal, beta * penetration + dvel);
-    f2.applyImpulses(edgeBody, vertBody, rEdge, rVert, normal.multiply(imp));
-
-        var tangent = rel.subtract(normal.multiply(rel.dot(normal))).normalize();
-        // var tangent = (rel.dot(normal) < 0 ? normal.crossZ(1) : normal.crossZ(-1));
-
-    var relVelAlongTangent =  rel.dot(tangent);
-    var mu = f2.combinedFrictionCoef(edgeBody.sFriction, vertBody.sFriction)
-    var tImp = f2.solveVelocity(edgeBody,vertBody,rEdge,rVert,tangent, -relVelAlongTangent);
-    if (Math.abs(tImp) > - imp* mu){
-      var dmu = f2.combinedFrictionCoef(edgeBody.kFriction, vertBody.kFriction);
-      tImp = imp * dmu;
-    }
-    f2.applyImpulses(edgeBody, vertBody, rEdge, rVert, tangent.multiply(tImp));
-    return true;
+    // for (var i in this.rigidConstraints){
+    //     for (var j in this.rigidConstraints[i]){
+    //         var c = this.rigidConstraints[i][j];
+    //         for (var k = 0; k < c.length; k++){
+    //             c[k].display(ctx);
+    //         }
+    //     }
+    // }
+    // for (var i in this.springConstraints){
+    //     for (var j in this.springConstraints[i]){
+    //         var c = this.springConstraints[i][j];
+    //         for (var k = 0; k < c.length; k++){
+    //             c[k].display(ctx);
+    //         }
+    //     }
+    // }
   }
   updateDynamicHashGrid(){
     this.dynamicBodiesRegions.clear();
@@ -362,7 +340,7 @@ f2.World = class{
     }
   }
   getDynamicIntersects(body){
-    
+
     var grid = this.getGrid(body.position);
     var s = new Set();
     for (var x = grid.x - 1; x <= grid.x + 1; x++){
@@ -392,17 +370,35 @@ f2.World = class{
         body.integrate(t);
     }
 
+    for (var i in this.dynamicBodies){
+        var body = this.dynamicBodies[i];
+        body.integrate(t);
+    }
+
+    for (var i in this.dynamicBodies){
+        var myConstraints = this.springConstraints[i];
+        for (var j in myConstraints){
+            if (i >= j){
+                continue;
+            }
+            var c = myConstraints[j];
+            for (var k = 0; k < c.length; k++){
+                var m = c[k].solve();
+            }
+        }
+    }
+    
     var moved = new Set();
-    this.updateDynamicHashGrid();
     for (var i in this.dynamicBodies){
         moved.add(i);
     }
+    this.updateDynamicHashGrid();
     var count = 0;
     // while(moved.size > 0){
     for (var k = 0; k < 10 && moved.size > 0; k++){
       var newMoved = new Set();
       moved.forEach((i) => {
-        var myConstraints = this.constraints[i];
+        var myConstraints = this.rigidConstraints[i];
         for (var j in myConstraints){
             var c = myConstraints[j];
             for (var k = 0; k < c.length; k++){
@@ -420,14 +416,16 @@ f2.World = class{
         var dynamicInt = this.getDynamicIntersects(body);
         for (var j in dynamicInt){
           var idx = dynamicInt[j];
-          if (i == idx){
+          if (i == idx ){
             continue;
           }
           var oBody = this.dynamicBodies[idx];
-          var m = this.intersect(body, oBody);
-          if (m){
-            newMoved.add(i);
-            newMoved.add(idx);
+          if (!this.isSkipped(body, oBody)){
+              var m = f2.intersect(body, oBody);
+              if (m){
+                newMoved.add(i);
+                newMoved.add(idx);
+              }
           }
         }
         var staticInt = this.getStaticIntersects(body);
@@ -436,9 +434,11 @@ f2.World = class{
         }
         staticInt.forEach((j) => {
           var oBody = this.staticBodies[j];
-          var m = this.intersect(body, oBody);
-          if (m){
-            newMoved.add(i);
+          if (!this.isSkipped(body, oBody)){
+              var m = f2.intersect(body, oBody);
+              if (m){
+                newMoved.add(i);
+              }
           }
         });
       });
@@ -768,6 +768,11 @@ f2.Constraint = class {
     r1;
     r2;
     length;
+    
+    beta;
+    gamma;
+
+    rigid;
     constructor(opts){
         opts = opts || {};
         this.body1 = opts.body1;
@@ -775,6 +780,11 @@ f2.Constraint = class {
         this.r1 = opts.r1;
         this.r2 = opts.r2;
         this.length = opts.length || 0;
+
+        this.beta = opts.beta || 10;
+        this.gamma = opts.gamma || 0.8;
+
+        this.rigid = (opts.rigid == undefined || opts.rigid);
     }
     setBody1(body1, r1){
         this.body1 = body1;
@@ -789,8 +799,6 @@ f2.Constraint = class {
     }
     solve(){
         var slop = 0.03;
-        var percent = 0.4;
-        var beta = 10;
         var p1 = this.body1.getPosition(this.r1);
         var p2 = this.body2.getPosition(this.r2);
         var r1 = p1.subtract(this.body1.position);
@@ -802,8 +810,8 @@ f2.Constraint = class {
         if (Math.abs(pen) < slop){
             return false;
         }
-        f2.solvePosition(this.body1, this.body2, r1, r2, normal, percent * pen);
-        var imp = f2.solveVelocity(this.body1, this.body2, r1, r2, normal, beta * pen-v1.subtract(v2).dot(normal));
+        f2.solvePosition(this.body1, this.body2, r1, r2, normal, this.gamma * pen);
+        var imp = f2.solveVelocity(this.body1, this.body2, r1, r2, normal, this.beta * pen - v1.subtract(v2).dot(normal));
         f2.applyImpulses(this.body1, this.body2, r1, r2, normal.multiply(imp));
         return true;
     }
@@ -819,22 +827,87 @@ f2.Constraint = class {
     }
 };
 
+f2.intersect = function(A, B){
+    var slop = 0.03;
+    var percent = 0.8;
+    var beta = 10;
+
+    var APoly = A.generateShape();
+    var BPoly = B.generateShape();
+
+    var AEdge = APoly.findAxisOfLeastPen(BPoly);
+    var BEdge = BPoly.findAxisOfLeastPen(APoly);
+    var edgeBody;
+    var vertBody;
+    var intersectInfo;
+    if (AEdge.penetration > BEdge.penetration){
+      edgeBody = A;
+      vertBody = B;
+      intersectInfo = AEdge;
+    }
+    else{
+      edgeBody = B;
+      vertBody = A;
+      intersectInfo = BEdge;
+    }
+    var normal = intersectInfo.normal;
+    var penetration = intersectInfo.penetration;
+    if (penetration > -slop){
+      return false;
+    }
+    var vertex = intersectInfo.vertex;
+    var edge = intersectInfo.vertex.add(normal.multiply(-penetration));
+
+    var rEdge = edge.subtract(edgeBody.position);
+    var rVert = vertex.subtract(vertBody.position);
+
+    f2.solvePosition(edgeBody,vertBody,rEdge,rVert,normal, percent*penetration);
+
+
+    var vEdge = edgeBody.getVelocity(rEdge);
+    var vVert = vertBody.getVelocity(rVert);
+
+    var rel = vEdge.subtract(vVert);
+    var normRel = normal.dot(rel);
+    if (normRel < 0){
+      return true;
+    }
+
+    var elasticity = f2.combinedElasticity(edgeBody.elasticity, vertBody.elasticity);
+    var dvel = -(1 + elasticity) * normRel;
+
+    var imp = f2.solveVelocity(edgeBody,vertBody,rEdge,rVert,normal, beta * penetration + dvel);
+    f2.applyImpulses(edgeBody, vertBody, rEdge, rVert, normal.multiply(imp));
+
+        var tangent = rel.subtract(normal.multiply(rel.dot(normal))).normalize();
+        // var tangent = (rel.dot(normal) < 0 ? normal.crossZ(1) : normal.crossZ(-1));
+
+    var relVelAlongTangent =  rel.dot(tangent);
+    var mu = f2.combinedFrictionCoef(edgeBody.sFriction, vertBody.sFriction)
+    var tImp = f2.solveVelocity(edgeBody,vertBody,rEdge,rVert,tangent, -relVelAlongTangent);
+    if (Math.abs(tImp) > - imp* mu){
+      var dmu = f2.combinedFrictionCoef(edgeBody.kFriction, vertBody.kFriction);
+      tImp = imp * dmu;
+    }
+    f2.applyImpulses(edgeBody, vertBody, rEdge, rVert, tangent.multiply(tImp));
+    return true;
+};
 f2.solvePosition = function(A,B,rA,rB, n, dlength){
     var normCombinedInvMass = 1/A.mass + 1/B.mass + n.cross(rA)**2/A.inertia + n.cross(rB)**2/B.inertia;
     var massMove = (dlength)/normCombinedInvMass;
     A.applyMassDisplacement(n.multiply(massMove), rA);
     B.applyMassDisplacement(n.multiply(-massMove), rB);
     return massMove;
-}
+};
 f2.solveVelocity = function(A,B,rA,rB, n, dvel){
     var normCombinedInvMass = 1/A.mass + 1/B.mass + n.cross(rA)**2/A.inertia + n.cross(rB)**2/B.inertia;
     var inertia = (dvel)/normCombinedInvMass;
     return inertia;
-}
+};
 f2.applyImpulses = function(A,B, rA, rB, imp){
     A.applyImpulse(imp, rA);
     B.applyImpulse(imp.multiply(-1), rB);
-}
+};
 f2.combinedElasticity = function(e1, e2){
   return Math.min(e1, e2);
 };
