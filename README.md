@@ -7,8 +7,9 @@ prefix is f2
 - f2.World -> Physics world to add bodies to
 - f2.Circle -> circle shape
 - f2.Polygon -> polygon shape
-- f2.Body -> body interface
+- f2.Body -> bodies can be added to thew orld
 - f2.CircleBody -> circle body that extends f2.Body
 - f2.PolyBody -> polygon body that extends f2.Body
 - f2.RectBody -> rectangle body that extends f2.PolyBody
+- f2.Constraint -> springs
 demo here: https://2dphysicsengine.matzhao.repl.co/
