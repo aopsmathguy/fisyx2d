@@ -1,5 +1,4 @@
 var f2 = {};
-var f2 = {};
 f2.HashGrid = class {
     obj;
     constructor() {
@@ -142,6 +141,7 @@ f2.Vec2 = class {
         return new f2.Vec2(opts.x || 0, opts.y || 0);
     }
 };
+
 f2.World = class {
     gravity;
     scale;
@@ -161,6 +161,8 @@ f2.World = class {
 
     contactFilter; //function(obj manifold){return boolean}
     contactListener; // function(obj manifold){}
+
+    constraints;
     constructor(opts) {
         opts = opts || {};
         this.gravity = opts.gravity || 0;
@@ -181,6 +183,8 @@ f2.World = class {
 
         this.contactFilter = null;
         this.contactListener = null;
+
+        this.constraints = {};
     }
     setContactFilter(f) {
         this.contactFilter = f;
@@ -211,8 +215,6 @@ f2.World = class {
     displayRect(ctx, min, max, delT) {
         delT = delT || 0
         ctx.lineWidth = 0.1;
-        ctx.strokeStyle = "#000";
-        ctx.fillStyle = "rgba(255,255,255,0)";
         var minGrid = this.getGrid(min);
         var maxGrid = this.getGrid(max);
         var idxSet = new Set();
@@ -269,9 +271,9 @@ f2.World = class {
         this.allBodies[id] = b;
         if (b.mass == Infinity) {
             this.staticBodies[id] = b;
-            var poly = b.generateShape();
-            var minG = this.getGrid(poly.min);
-            var maxG = this.getGrid(poly.max);
+            var minMax = b.getMinMax();
+            var minG = this.getGrid(minMax.min);
+            var maxG = this.getGrid(minMax.max);
             for (var x = minG.x - 1; x <= maxG.x + 1; x++) {
                 for (var y = minG.y - 1; y <= maxG.y + 1; y++) {
                     this.staticBodiesRegions.add(x, y, id);
@@ -287,9 +289,9 @@ f2.World = class {
         delete this.allBodies[id];
         if (b.mass == Infinity) {
             delete this.staticBodies[id];
-            var poly = b.generateShape();
-            var minG = this.getGrid(poly.min);
-            var maxG = this.getGrid(poly.max);
+            var minMax = b.getMinMax();
+            var minG = this.getGrid(minMax.min);
+            var maxG = this.getGrid(minMax.max);
             for (var x = minG.x - 2; x <= maxG.x + 2; x++) {
                 for (var y = minG.y - 2; y <= maxG.y + 2; y++) {
                     this.staticBodiesRegions.remove(x, y, id);
@@ -299,6 +301,17 @@ f2.World = class {
         else {
             delete this.dynamicBodies[id];
         }
+    }
+    addConstraint(c){
+        var id = this.nextId++;
+        c.id = id;
+        this.allBodies[id] = c;
+        this.constraints[id] = c;
+    }
+    removeConstraint(c){
+        var id = c.id;
+        delete this.allBodies[id];
+        delete this.constraints[id];
     }
     getDynamicIntersects(body) {
         var grid = this.getGrid(body.position);
@@ -326,6 +339,10 @@ f2.World = class {
     }
     step(t) {
         this.time += t
+        for (var i in this.constraints){
+            var c = this.constraints[i];
+            c.step(t);
+        }
         for (var i in this.dynamicBodies) {
             var body = this.dynamicBodies[i];
             body.applyImpulse(new f2.Vec2(0, t * body.mass * this.gravity));
@@ -372,8 +389,8 @@ f2.World = class {
                             newMoved.add(i);
                             newMoved.add(idx);
                         }
-                        if (m.collision) {
-                            this.doContactListener(m);
+                        for (var i = 0; i < m.collisions.length; i++) {
+                            this.doContactListener(m.collisions[i]);
                         }
                     }
                 }
@@ -398,8 +415,8 @@ f2.World = class {
                         if (m.moved) {
                             newMoved.add(i);
                         }
-                        if (m.collision) {
-                            this.doContactListener(m);
+                        for (var i = 0; i < m.collisions.length; i++) {
+                            this.doContactListener(m.collisions[i]);
                         }
                     }
                 };
@@ -409,28 +426,71 @@ f2.World = class {
         }
     }
 };
-f2.Circle = class {
-    sType = "c";
+f2.Shape = class {
+    sType;
+    constructor(sType) {
+        this.sType = sType;
+    }
+    static serialize(p) {
+        var clss = p.constructor;
+        return clss.serialize(p);
+    }
+    static deserialize(p) {
+        var clss;
+        switch (p.sType) {
+            case "c":
+                clss = f2.Circle;
+                break;
+            case "p":
+                clss = f2.Polygon;
+                break;
+        }
+        return clss.deserialize(p);
+    }
+    getAreaMoment() {
+    }
+}
+f2.Circle = class extends f2.Shape {
     center;
     radius;
     min;
     max;
     constructor(center, radius) {
-        this.center = center;
+        super("c")
+        this.center = f2.Vec2.copy(center);
         this.radius = radius;
-        this.min = center.add(new f2.Vec2(- this.radius, - this.radius));
-        this.max = center.add(new f2.Vec2(this.radius, this.radius));
+        this.min = this.center.add(new f2.Vec2(- this.radius, - this.radius));
+        this.max = this.center.add(new f2.Vec2(this.radius, this.radius));
+    }
+    static serialize(p) {
+        var obj = {};
+        obj.sType = p.sType;
+        obj.center = p.center;
+        obj.radius = p.radius;
+        return obj;
+    }
+    static deserialize(obj) {
+        return new f2.Circle(obj.center, obj.radius);
     }
     display(ctx) {
         ctx.save();
         ctx.beginPath();
         ctx.arc(this.center.x, this.center.y, this.radius, 0, 2 * Math.PI);
         ctx.closePath();
+        ctx.fill();
         ctx.stroke();
         ctx.restore();
     }
+    getAreaMoment() {
+        var area = Math.PI * this.radius ** 2;
+        var moment = Math.PI * this.radius ** 2 * (1 / 2 * this.radius ** 2 + this.center.magnitude() ** 2);
+        return { area: area, moment: moment };
+    }
     extremePoint(dir) {
         return this.center.add(dir.multiply(this.radius));
+    }
+    transform(placement) {
+        return new f2.Circle(this.center.rotate(placement.angle).add(placement.position), this.radius);
     }
     findAxisOfLeastPen(b) {
         switch (b.sType) {
@@ -439,7 +499,7 @@ f2.Circle = class {
                 var normal = centerDisp.normalize();
                 var bestDistance = centerDisp.magnitude() - (b.radius + this.radius);
                 var vertex = b.extremePoint(normal.multiply(-1));
-                return { normal: normal, penetration: bestDistance, vertex: vertex };
+                return { normal: normal, penetration: bestDistance, p2: vertex, p1: vertex.add(normal.multiply(-bestDistance)) };
                 break;
             //circle vs polygon vertex
             case "p":
@@ -464,27 +524,37 @@ f2.Circle = class {
                 if (toCenter.dot(toNext) > 0 || toCenter.dot(toPrev) > 0) {
                     bestDistance = -10000000;
                 }
-                return { normal: normal, penetration: bestDistance, vertex: now };
+                return { normal: normal, penetration: bestDistance, p2: now, p1: now.add(normal.multiply(-bestDistance)) };
                 break;
         }
     }
 };
-f2.Polygon = class {
-    sType = "p";
+f2.Polygon = class extends f2.Shape {
     vs;
     min;
     max;
     constructor(vs) {
-        this.vs = vs;
+        super("p")
+        this.vs = [];
         this.min = new f2.Vec2(10000000, 10000000);
         this.max = new f2.Vec2(-10000000, -10000000);
-        for (var i = 0; i < this.vs.length; i++) {
-            var point = this.vs[i];
+        for (var i = 0; i < vs.length; i++) {
+            var point = vs[i];
+            this.vs[i] = f2.Vec2.copy(point);
             this.min.x = Math.min(this.min.x, point.x);
             this.min.y = Math.min(this.min.y, point.y);
             this.max.x = Math.max(this.max.x, point.x);
             this.max.y = Math.max(this.max.y, point.y);
         }
+    }
+    static serialize(p) {
+        var obj = {};
+        obj.sType = p.sType;
+        obj.vs = p.vs;
+        return obj;
+    }
+    static deserialize(obj) {
+        return new f2.Polygon(obj.vs);
     }
     display(ctx) {
         ctx.save();
@@ -499,8 +569,21 @@ f2.Polygon = class {
             }
         }
         ctx.closePath();
+        ctx.fill();
         ctx.stroke();
         ctx.restore();
+    }
+    getAreaMoment() {
+        var area = 0;
+        var moment = 0;
+        for (var i = 0; i < this.vs.length; i++) {
+            var p1 = this.vs[i];
+            var p2 = this.vs[(i + 1) % this.vs.length];
+            area += 1 / 2 * (p1.y * p2.x - p1.x * p2.y);
+            moment += 1 / 12 * (p1.y * p2.x - p1.x * p2.y)
+                * (p1.x ** 2 + p2.x ** 2 + p1.x * p2.x + p1.y ** 2 + p2.y ** 2 + p1.y * p2.y)
+        }
+        return { area: area, moment: moment };
     }
     extremePoint(dir) {
         var bestProj = - 100000000;
@@ -514,6 +597,14 @@ f2.Polygon = class {
             }
         }
         return out;
+    }
+    transform(placement) {
+        var vs = [];
+        for (var i = 0; i < this.vs.length; i++) {
+            var point = this.vs[i];
+            vs[i] = point.rotate(placement.angle).add(placement.position);
+        }
+        return new f2.Polygon(vs);
     }
     findAxisOfLeastPen(b) {
         switch (b.sType) {
@@ -535,7 +626,7 @@ f2.Polygon = class {
                         vertex = s;
                     }
                 }
-                return { normal: normal, penetration: bestDistance, vertex: vertex };
+                return { normal: normal, penetration: bestDistance, p2: vertex, p1: vertex.add(normal.multiply(-bestDistance)) };
                 break;
             case "p":
                 var bestDistance = -100000000;
@@ -554,13 +645,16 @@ f2.Polygon = class {
                         vertex = s;
                     }
                 }
-                return { normal: normal, penetration: bestDistance, vertex: vertex };
+                return { normal: normal, penetration: bestDistance, p2: vertex, p1: vertex.add(normal.multiply(-bestDistance)) };
                 break;
         }
     }
 };
+
 f2.Body = class {
     id;
+
+    shapes;
 
     mass;
     inertia;
@@ -579,18 +673,27 @@ f2.Body = class {
     customDisplayPlacement;
     userData;
 
-    static serializedFields = [
-        "bodyType", "mass", "inertia", "kFriction", "sFriction", "elasticity", "position", "velocity", "angle", "angleVelocity"
-    ];
-    static serializedDynamicsFields = [
-        "position", "velocity", "angle", "angleVelocity"
-    ];
     constructor(opts) {
         opts = opts || {};
         this.id = opts.id || 0;
 
-        this.mass = opts.mass || 1;
-        this.inertia = opts.inertia || 1;
+        opts.shapes = opts.shapes || []
+        this.shapes = [];
+        for (var s = 0; s < opts.shapes.length; s++) {
+            this.shapes[s] = f2.Shape.deserialize(opts.shapes[s]);
+        }
+
+        var area = 0;
+        var moment = 0;
+        for (var s = 0; s < opts.shapes.length; s++) {
+            var shp = this.shapes[s];
+            var am = shp.getAreaMoment();
+            area += am.area;
+            moment += am.moment;
+        }
+        this.mass = opts.mass || area;
+        this.inertia = opts.inertia || this.mass / area * moment;
+
         this.kFriction = isNaN(opts.kFriction) ? 0.1 : opts.kFriction;
         this.sFriction = isNaN(opts.sFriction) ? 0.1 : opts.sFriction;
         this.elasticity = opts.elasticity || 0.3;
@@ -608,31 +711,45 @@ f2.Body = class {
     }
     static serialize(bd) {
         var objSerialize = {};
-        var clss = bd.constructor;
-        for (var i = 0; i < clss.serializedFields.length; i++) {
-            var f = clss.serializedFields[i];
-            objSerialize[f] = bd[f];
+
+        objSerialize.shapes = [];
+        for (var i = 0; i < bd.shapes.length; i++) {
+            objSerialize.shapes[i] = f2.Shape.serialize(bd.shapes[i]);
         }
-        for (var i = 0; i < clss.extraSerializedFields.length; i++) {
-            var f = clss.extraSerializedFields[i];
-            objSerialize[f] = bd[f];
-        }
+
+        objSerialize.mass = bd.mass;
+        objSerialize.inertia = bd.inertia;
+        objSerialize.kFriction = bd.kFriction;
+        objSerialize.sFriction = bd.sFriction;
+        objSerialize.elasticity = bd.elasticity;
+
+        objSerialize.position = bd.position;
+        objSerialize.velocity = bd.velocity;
+        objSerialize.angle = bd.angle;
+        objSerialize.angleVelocity = bd.angleVelocity;
+
         return objSerialize;
     }
     static serializeDynamics(bd) {
         var objSerialize = {};
-        var clss = bd.constructor;
-        for (var i = 0; i < clss.serializedDynamicsFields.length; i++) {
-            var f = clss.serializedDynamicsFields[i];
-            objSerialize[f] = bd[f];
-        }
+        objSerialize.position = bd.position;
+        objSerialize.velocity = bd.velocity;
+        objSerialize.angle = bd.angle;
+        objSerialize.angleVelocity = bd.angleVelocity;
         return objSerialize;
     }
     static deserialize(bd) {
-        return f2.Body.generateBody(bd);
+        return new f2.Body(bd);
+    }
+    updateDynamics(opts) {
+        this.position = f2.Vec2.copy(opts.position);
+        this.velocity = f2.Vec2.copy(opts.velocity);
+
+        this.angle = opts.angle;
+        this.angleVelocity = opts.angleVelocity;
     }
     setUserData(k, v) {
-        this.userData[k] = v
+        this.userData[k] = v;
     }
     getUserData(k) {
         return this.userData[k]
@@ -643,13 +760,6 @@ f2.Body = class {
             angle: this.angle + this.angleVelocity * delT
         }
     }
-    updateDynamics(opts) {
-        this.position = f2.Vec2.copy(opts.position);
-        this.velocity = f2.Vec2.copy(opts.velocity);
-
-        this.angle = opts.angle;
-        this.angleVelocity = opts.angleVelocity;
-    }
     setCustomDisplayPlacement(f) {
         this.customDisplayPlacement = f;
     }
@@ -657,6 +767,16 @@ f2.Body = class {
         delT = delT || 0
         var plmnt = this.createPlacement(delT)
         this.displayPlacement(ctx, plmnt)
+    }
+    defaultDisplayPlacement(ctx, placement) {
+        ctx.save();
+        ctx.translate(placement.position.x, placement.position.y);
+        ctx.rotate(placement.angle);
+        for (var i = 0; i < this.shapes.length; i++) {
+            var s = this.shapes[i];
+            s.display(ctx);
+        }
+        ctx.restore();
     }
     displayPlacement(ctx, placement) {
         if (this.customDisplayPlacement) {
@@ -666,13 +786,25 @@ f2.Body = class {
             this.defaultDisplayPlacement(ctx, placement);
         }
     }
-    static generateBody(opts) {
-        if (opts.bodyType == "c") {
-            return new f2.CircleBody(opts);
+    generateShapes() {
+        var s = [];
+        for (var i = 0; i < this.shapes.length; i++) {
+            s[i] = this.shapes[i].transform(this);
         }
-        else if (opts.bodyType == "p") {
-            return new f2.PolyBody(opts);
+        return s;
+    }
+    getMinMax() {
+        var shapes = this.generateShapes();
+        var min = new f2.Vec2(10000000, 10000000);
+        var max = new f2.Vec2(-10000000, -10000000);
+        for (var i = 0; i < shapes.length; i++) {
+            min.x = Math.min(shapes[i].min.x, min.x);
+            min.y = Math.min(shapes[i].min.y, min.y);
+
+            max.x = Math.max(shapes[i].max.x, max.x);
+            max.y = Math.max(shapes[i].max.y, max.y);
         }
+        return { min: min, max: max };
     }
     getVelocity(r) {
         return this.velocity.add(r.rCrossZ(this.angleVelocity));
@@ -700,139 +832,128 @@ f2.Body = class {
     }
 };
 f2.CircleBody = class extends f2.Body {
-    bodyType = "c";
     radius;
-    static extraSerializedFields = [
-        "radius"
-    ];
     constructor(opts) {
-        super(opts);
+        super(Object.assign(opts, {
+            shapes: [
+                new f2.Circle(new f2.Vec2(0, 0), opts.radius)
+            ]
+        }));
         opts = opts || {};
-        this.radius = opts.radius || 1;
-        this.inertia = opts.inertia || 1 / 2 * this.mass * this.radius ** 2;
-    }
-    defaultDisplayPlacement(ctx, placement) {
-        ctx.save();
-        ctx.translate(placement.position.x, placement.position.y);
-        ctx.rotate(placement.angle);
-
-        ctx.beginPath();
-        ctx.arc(0, 0, this.radius, 0, 2 * Math.PI);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-        ctx.moveTo(-this.radius, 0);
-        ctx.lineTo(-this.radius / 2, 0);
-        ctx.moveTo(this.radius, 0);
-        ctx.lineTo(this.radius / 2, 0);
-        ctx.moveTo(0, -this.radius);
-        ctx.lineTo(0, -this.radius / 2);
-        ctx.moveTo(0, this.radius);
-        ctx.lineTo(0, this.radius / 2);
-        ctx.stroke();
-
-        ctx.restore();
-    }
-    generateShape() {
-        var newCenter = this.position;
-        return new f2.Circle(newCenter, this.radius);
+        this.radius = opts.radius;
     }
 };
 f2.PolyBody = class extends f2.Body {
-    bodyType = "p";
     points;
-    static extraSerializedFields = [
-        "points"
-    ];
     constructor(opts) {
-        super(opts);
+        super(Object.assign(opts, {
+            shapes: [
+                new f2.Polygon(opts.points)
+            ]
+        }));
         opts = opts || {};
-        this.points = [];
-        if (opts.points == undefined) {
-            this.points = [
-                new f2.Vec2(1, 1),
-                new f2.Vec2(1, -1),
-                new f2.Vec2(-1, -1),
-                new f2.Vec2(-1, 1)
-            ];
-        } else {
-            for (var i = 0; i < opts.points.length; i++) {
-                this.points[i] = f2.Vec2.copy(opts.points[i]);
-            }
-        }
-    }
-    defaultDisplayPlacement(ctx, placement) {
-        ctx.save();
-        ctx.translate(placement.position.x, placement.position.y);
-        ctx.rotate(placement.angle);
-
-        ctx.beginPath();
-        for (var i = 0; i < this.points.length; i++) {
-            var point = this.points[i];
-            if (i == 0) {
-                ctx.moveTo(point.x, point.y);
-            }
-            else {
-                ctx.lineTo(point.x, point.y);
-            }
-        }
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-
-        ctx.restore();
-    }
-    generateShape() {
-        var newPoints = [];
-        for (var i = 0; i < this.points.length; i++) {
-            newPoints[i] = this.points[i].rotate(this.angle).add(this.position);
-        }
-        return new f2.Polygon(newPoints);
+        this.points = opts.points;
     }
 };
 f2.RectBody = class extends f2.PolyBody {
+    width;
+    length;
     constructor(opts) {
-        super(opts);
-        opts = opts || {};
-        this.width = opts.width || 2;
-        this.length = opts.length || 2;
-        this.points = [
-            new f2.Vec2(this.length / 2, this.width / 2),
-            new f2.Vec2(this.length / 2, -this.width / 2),
-            new f2.Vec2(-this.length / 2, -this.width / 2),
-            new f2.Vec2(-this.length / 2, this.width / 2)
-        ];
-        this.inertia = opts.inertia || 1 / 12 * this.mass * (this.length ** 2 + this.width ** 2);
+        super(Object.assign(opts, {
+            points: [
+                new f2.Vec2(opts.length / 2, opts.width / 2),
+                new f2.Vec2(opts.length / 2, -opts.width / 2),
+                new f2.Vec2(-opts.length / 2, -opts.width / 2),
+                new f2.Vec2(-opts.length / 2, opts.width / 2)
+            ]
+        }));
+        this.width = opts.width;
+        this.length = opts.length;
     }
 };
 
-f2.intersect = function(A, B) {
-    var slop = 0.03;
+f2.Constraint = class{
+    id;
+    
+    body1;
+    r1;
+    
+    body2;
+    r2;
+    
+    kconstant;
+    cdamp;
+    constructor(opts){
+        opts = opts || {};
+        this.body1 = opts.body1;
+        this.r1 = f2.Vec2.copy(opts.r1);
+        
+        this.body2 = opts.body2;
+        this.r2 = f2.Vec2.copy(opts.r2);
 
-    var APoly = A.generateShape();
-    var BPoly = B.generateShape();
+        var r1Rot = this.r1.rotate(this.body1.angle);
+        var r2Rot = this.r2.rotate(this.body2.angle);
+        
+        var p1 = this.body1.position.add(r1Rot);
+        var p2 = this.body2.position.add(r2Rot);
+        
+        this.restLength = opts.restLength || p1.distanceTo(p2)
+        var n = p1.subtract(p2).normalize();
+        
+        var normCombinedInvMass = 1 / this.body1.mass + 1 / this.body2.mass 
+            + n.cross(r1Rot) ** 2 / this.body1.inertia + n.cross(r2Rot) ** 2 / this.body2.inertia;
 
+        this.kconstant = opts.kconstant || 1/normCombinedInvMass;
+        this.cdamp = opts.cdamp || 2*Math.sqrt(this.kconstant/normCombinedInvMass)
+    }
+    step(dt){
+        var r1Rot = this.r1.rotate(this.body1.angle);
+        var r2Rot = this.r2.rotate(this.body2.angle);
+        
+        var p1 = this.body1.position.add(r1Rot);
+        var p2 = this.body2.position.add(r2Rot);
+
+        var vel1 = this.body1.getVelocity(r1Rot);
+        var vel2 = this.body2.getVelocity(r2Rot);
+        
+        var stretch = p1.distanceTo(p2) - this.restLength;
+        var n = p1.subtract(p2).normalize();
+
+        var relVel = vel1.subtract(vel2).dot(n);
+        f2.applyImpulses(this.body1, this.body2, r1Rot, r2Rot, 
+                         n.multiply((-this.kconstant * stretch - this.cdamp*relVel)*dt)
+                        );
+    }
+}
+
+f2.intersectShapes = function(APoly, BPoly) {
+    if (!f2.AABBvsAABB(APoly.min, APoly.max, BPoly.min, BPoly.max)) {
+        return { normal: null, penetration: 0, p2: null, p1: null };
+    }
     var AEdge = APoly.findAxisOfLeastPen(BPoly);
     var BEdge = BPoly.findAxisOfLeastPen(APoly);
-    var edgeBody;
-    var vertBody;
     var intersectInfo;
     if (AEdge.penetration > BEdge.penetration) {
-        edgeBody = A;
-        vertBody = B;
         intersectInfo = AEdge;
     }
     else {
-        edgeBody = B;
-        vertBody = A;
         intersectInfo = BEdge;
+        intersectInfo.normal = intersectInfo.normal.multiply(-1);
+        var p1 = intersectInfo.p2;
+        intersectInfo.p2 = intersectInfo.p1;
+        intersectInfo.p1 = p1;
     }
+    return intersectInfo;
+}
+f2.handleIntersectInfo = function(A, B, intersectInfo) {
+    var slop = 0.01;
+
     var normal = intersectInfo.normal;
     var penetration = intersectInfo.penetration;
     if (penetration > -slop) {
         return {
-            A: edgeBody,
-            B: vertBody,
+            A: A,
+            B: B,
             moved: false,
             collision: false,
             jnorm: 0,
@@ -841,24 +962,23 @@ f2.intersect = function(A, B) {
             tang: undefined
         };
     }
-    var vertex = intersectInfo.vertex;
-    var edge = intersectInfo.vertex.add(normal.multiply(-penetration));
+    var p1 = intersectInfo.p1;
+    var p2 = intersectInfo.p2;
 
-    var rEdge = edge.subtract(edgeBody.position);
-    var rVert = vertex.subtract(vertBody.position);
+    var rA = p1.subtract(A.position);
+    var rB = p2.subtract(B.position);
 
-    f2.solvePosition(edgeBody, vertBody, rEdge, rVert, normal, penetration);
+    f2.solvePosition(A, B, rA, rB, normal, penetration);
 
+    var vA = A.getVelocity(rA);
+    var vB = B.getVelocity(rB);
 
-    var vEdge = edgeBody.getVelocity(rEdge);
-    var vVert = vertBody.getVelocity(rVert);
-
-    var rel = vEdge.subtract(vVert);
+    var rel = vA.subtract(vB);
     var normRel = normal.dot(rel);
     if (normRel < 0) {
         return {
-            A: edgeBody,
-            B: vertBody,
+            A: A,
+            B: B,
             moved: true,
             collision: false,
             jnorm: 0,
@@ -868,26 +988,26 @@ f2.intersect = function(A, B) {
         };
     }
 
-    var elasticity = f2.combinedElasticity(edgeBody.elasticity, vertBody.elasticity);
+    var elasticity = f2.combinedElasticity(A.elasticity, B.elasticity);
     var dvel = -(1 + elasticity) * normRel;
 
-    var imp = f2.solveVelocity(edgeBody, vertBody, rEdge, rVert, normal, dvel);
-    f2.applyImpulses(edgeBody, vertBody, rEdge, rVert, normal.multiply(imp));
+    var imp = f2.solveVelocity(A, B, rA, rB, normal, dvel);
+    f2.applyImpulses(A, B, rA, rB, normal.multiply(imp));
 
     var tangent = rel.subtract(normal.multiply(rel.dot(normal))).normalize();
     // var tangent = (rel.dot(normal) < 0 ? normal.crossZ(1) : normal.crossZ(-1));
 
     var relVelAlongTangent = rel.dot(tangent);
-    var mu = f2.combinedFrictionCoef(edgeBody.sFriction, vertBody.sFriction)
-    var tImp = f2.solveVelocity(edgeBody, vertBody, rEdge, rVert, tangent, -relVelAlongTangent);
+    var mu = f2.combinedFrictionCoef(A.sFriction, B.sFriction)
+    var tImp = f2.solveVelocity(A, B, rA, rB, tangent, -relVelAlongTangent);
     if (Math.abs(tImp) > - imp * mu) {
-        var dmu = f2.combinedFrictionCoef(edgeBody.kFriction, vertBody.kFriction);
+        var dmu = f2.combinedFrictionCoef(A.kFriction, B.kFriction);
         tImp = imp * dmu;
     }
-    f2.applyImpulses(edgeBody, vertBody, rEdge, rVert, tangent.multiply(tImp));
+    f2.applyImpulses(A, B, rA, rB, tangent.multiply(tImp));
     return {
-        A: edgeBody,
-        B: vertBody,
+        A: A,
+        B: B,
         moved: true,
         collision: true,
         jnorm: imp,
@@ -895,6 +1015,23 @@ f2.intersect = function(A, B) {
         norm: normal,
         tang: tangent
     };
+}
+f2.intersect = function(A, B) {
+    var s1 = A.generateShapes();
+    var s2 = B.generateShapes();
+    var moved = false;
+    var collisions = [];
+    for (var i = 0; i < s1.length; i++) {
+        for (var j = 0; j < s2.length; j++) {
+            var intersectInfo = f2.intersectShapes(s1[i], s2[j]);
+            var o = f2.handleIntersectInfo(A, B, intersectInfo);
+            if (o.collision) {
+                collisions.push(o);
+            }
+            moved = moved || o.moved;
+        }
+    }
+    return { moved: moved, collisions: collisions };
 };
 f2.solvePosition = function(A, B, rA, rB, n, dlength) {
     var normCombinedInvMass = 1 / A.mass + 1 / B.mass + n.cross(rA) ** 2 / A.inertia + n.cross(rB) ** 2 / B.inertia;
@@ -928,17 +1065,13 @@ f2.AABBvsAABB = function(Amin, Amax, Bmin, Bmax) {
     return distCenters.x <= dimMean.x && distCenters.y <= dimMean.y;
 };
 
-f2.stringify = function(obj){
+f2.stringify = function(obj) {
     return JSON.stringify(obj, function censor(key, value) {
         return value === Infinity ? "Infinity2374852783457827" : value;
     });
 }
-f2.parse = function(obj){
+f2.parse = function(obj) {
     return JSON.parse(obj, function censor(key, value) {
         return value === "Infinity2374852783457827" ? Infinity : value;
     });
-}
-
-module.exports = {
-  f2
 }
