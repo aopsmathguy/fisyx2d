@@ -1,62 +1,37 @@
-Below is a comprehensive documentation for the **f2** library. This library provides a 2D physics engine in JavaScript with vector math utilities, shapes (circle/polygon), rigid bodies, a spatial hash (for quick lookups), constraints (like a spring), collision detection/resolution, and more.
+# f2.js: A 2D Physics and Math Library
+
+This library provides a lightweight framework for 2D vector math, collision detection, rigid body dynamics, fixtures, constraints, and a basic world structure for physics simulations. The following documentation details each class, its methods, and how they interrelate. Mathematical formulas are rendered in LaTeX using dollar sign delimiters.
 
 ---
 
 ## Table of Contents
 
-1. [Overview](#overview)
-2. [Classes](#classes)
-   - [f2.HashGrid](#f2hashgrid)
-   - [f2.Vec2](#f2vec2)
-   - [f2.World](#f2world)
-   - [f2.Shape](#f2shape) (abstract)
-     - [f2.Circle](#f2circle)
-     - [f2.Polygon](#f2polygon)
-   - [f2.Body](#f2body) (base)
-     - [f2.CircleBody](#f2circlebody)
-     - [f2.PolyBody](#f2polybody)
-     - [f2.RectBody](#f2rectbody)
-   - [f2.Constraint](#f2constraint)
-3. [Static Functions](#static-functions)
-   - [f2.intersectShapes(A, B)](#f2intersectshapesa-b)
-   - [f2.handleIntersectInfo(A, B, intersectInfo)](#f2handleintersectinfoa-b-intersectinfo)
-   - [f2.intersect(A, B)](#f2intersecta-b)
-   - [f2.solvePosition(A, B, rA, rB, n, dlength)](#f2solvepositiona-b-ra-rb-n-dlength)
-   - [f2.solveVelocity(A, B, rA, rB, n, dvel)](#f2solvevelocitya-b-ra-rb-n-dvel)
-   - [f2.applyImpulses(A, B, rA, rB, imp)](#f2applyimpulsesa-b-ra-rb-imp)
-   - [f2.combinedElasticity(e1, e2)](#f2combinedelasticitye1-e2)
-   - [f2.combinedFrictionCoef(f1, f2)](#f2combinedfrictioncoeff1-f2)
-   - [f2.AABBvsAABB(Amin, Amax, Bmin, Bmax)](#f2aabbvsaabbamin-amax-bmin-bmax)
-   - [f2.stringify(obj)](#f2stringifyobj)
-   - [f2.parse(str)](#f2parsestr)
-4. [Example Usage](#example-usage)
-5. [License](#license)
+1. [HashGrid](#f2hashgrid)
+2. [Vec2](#f2vec2)
+3. [Shape](#f2shape)
+   - [Circle](#f2circle)
+   - [Polygon](#f2polygon)
+   - [Rectangle](#f2rectangle)
+4. [Fixture](#f2fixture)
+5. [Body](#f2body)
+6. [Constraint](#f2constraint)
+7. [World](#f2world)
+8. [Utility Functions](#f2-utilities)
 
 ---
 
-## Overview
+## f2.HashGrid
 
-The **f2** library is a lightweight 2D physics library offering:
+**Path:** `f2.HashGrid`
 
-- **Vector operations** (via `f2.Vec2`)
-- **Basic shapes** (`f2.Circle`, `f2.Polygon`)
-- **Rigid bodies** (`f2.Body` and its subclasses)
-- **Collision detection & resolution** (SAT-based logic and impulse resolution)
-- **Spatial partitioning** (HashGrid for broad-phase optimization)
-- **Constraints** (simple spring-like constraint)
-- **Serialization** (save/load states)
-
----
-
-## Classes
-
-### f2.HashGrid
-
-A simple hash grid for partitioning objects in 2D space. Uses `(x, y)` integer hashing to store sets of objects. Useful for broad-phase collision or region queries.
+This is a simple hash grid designed for efficiently grouping objects by integer-based coordinates. Internally, it uses a JavaScript `object` (`this.obj`) mapping string keys (e.g., `"x y"`) to sets of elements.
 
 ```js
 f2.HashGrid = class {
-    constructor() { ... }
+    obj;
+    constructor() {
+        this.obj = {};
+    }
     key(x, y) { ... }
     clear() { ... }
     add(x, y, elem) { ... }
@@ -65,37 +40,45 @@ f2.HashGrid = class {
 };
 ```
 
-**Methods**:
+### Methods
 
-- **constructor()**
-  - Initializes an empty `obj` map (using JavaScript objects of type `Record<string, Set<any>>`).
+- **constructor()**  
+  Initializes an empty hash grid.
   
-- **key(x, y): string**
-  - Returns a string hash key (e.g., `"x y"`).
+- **key(x, y)**  
+  Returns a string key in the format `x + " " + y`.
   
-- **clear(): void**
-  - Clears all entries from the hash grid.
+- **clear()**  
+  Clears the entire internal storage.
   
-- **add(x, y, elem): void**
-  - Adds `elem` to the set at hash `(x, y)`.
-  - Creates a new `Set` if none exists at that key.
+- **add(x, y, elem)**  
+  Adds an element `elem` at the grid cell `(x, y)`.
   
-- **remove(x, y, elem): void**
-  - Removes `elem` from the set at hash `(x, y)`, if present.
+- **remove(x, y, elem)**  
+  Removes the specified `elem` from the cell `(x, y)` if it exists.
   
-- **get(x, y): Set<any> | undefined**
-  - Retrieves the set of items stored at hash `(x, y)`.
-  - Returns `undefined` if no set exists for that cell.
+- **get(x, y)**  
+  Returns the `Set` of elements at grid cell `(x, y)`. If no elements exist, returns `undefined`.
+
+Use this class in physics broad-phase checks to keep track of objects in discrete grid regions for collision detection or neighbor searches.
 
 ---
 
-### f2.Vec2
+## f2.Vec2
 
-A 2D vector class with numerous vector operations (addition, subtraction, rotation, dot/cross product, etc.).
+**Path:** `f2.Vec2`
+
+A 2D vector class providing basic vector arithmetic operations (addition, subtraction, dot products, cross products, etc.). Internally, the vector is stored in the form:
+
+$$
+\mathbf{v} = (x, y)
+$$
 
 ```js
 f2.Vec2 = class {
     constructor(x, y) { ... }
+
+    static serialize(v){ ... }
     projX() { ... }
     projY() { ... }
     floor() { ... }
@@ -118,354 +101,326 @@ f2.Vec2 = class {
     onSegment(v1, v2) { ... }
     closestToLine(v1, v2) { ... }
     orientation(v1, v2) { ... }
-
+    
     static fromPolar(r, ang) { ... }
     copy() { ... }
     static copy(opts) { ... }
 };
 ```
 
-**Constructor**:
+### Constructor
 
-- **constructor(x: number, y: number)**
-  - Creates a new `Vec2` with coordinates `(x, y)`.
+- **constructor(x, y)**  
+  Creates a new vector with coordinates `(x, y)`.
 
-**Instance methods**:
+### Methods
 
-- **projX(): Vec2**
-  - Returns the vector projected onto the X-axis, i.e., `(x, 0)`.
-  
-- **projY(): Vec2**
-  - Returns the vector projected onto the Y-axis, i.e., `(0, y)`.
+- **static serialize(v)**  
+  Returns a JSON-serializable object, `{ x: v.x, y: v.y }`.
 
-- **floor(): Vec2**
-  - Returns a new `Vec2` with `Math.floor(x)` and `Math.floor(y)`.
+- **projX(), projY()**  
+  Returns a new vector that is the projection of the current vector onto the X-axis or Y-axis respectively, by zeroing out the other component.
 
-- **rotate(theta: number): Vec2**
-  - Returns a new vector rotated by `theta` radians around the origin.
+- **floor()**  
+  Returns a new vector whose components are the floor of the current vector’s components.
 
-- **dot(o: Vec2): number**
-  - Dot product with another vector `o`.
+- **rotate(theta)**  
+  Rotates this vector by angle $ \theta $ (in radians) around the origin using the standard 2D rotation transform:  
+  $$
+  \begin{pmatrix}
+    x' \\
+    y'
+  \end{pmatrix}
+  =
+  \begin{pmatrix}
+    \cos \theta & -\sin \theta \\
+    \sin \theta & \cos \theta
+  \end{pmatrix}
+  \begin{pmatrix}
+    x \\
+    y
+  \end{pmatrix}.
+  $$
 
-- **cross(o: Vec2): number**
-  - 2D cross product result, treated as a scalar in 2D: `this.x * o.y - o.x * this.y`.
+- **dot(o)**  
+  Dot product with another vector $ \mathbf{o} $.  
+  $$
+  \mathbf{v} \cdot \mathbf{o} = x \cdot o.x + y \cdot o.y
+  $$
 
-- **crossZ(c: number): Vec2**
-  - Crosses this vector with a scalar `c` treated as a z-component, returning a perpendicular vector:  
-    \[
-      \text{crossZ}(c) = (c * y, -c * x).
-    \]
+- **cross(o)**  
+  2D cross product (which is effectively a scalar in 2D):  
+  $$
+  \mathbf{v} \times \mathbf{o} = x \cdot o_y - y \cdot o_x
+  $$
 
-- **rCrossZ(c: number): Vec2**
-  - Reverse cross with `c`: \[
-      \text{rCrossZ}(c) = (-c * y, c * x).
-    \]
+- **crossZ(c), rCrossZ(c)**  
+  Specialized cross with a scalar `c` used internally for rigid body calculations.
 
-- **magnitude(): number**
-  - Returns the Euclidean length of this vector.
+- **magnitude()**  
+  $$
+  \|\mathbf{v}\| = \sqrt{x^2 + y^2}
+  $$
 
-- **abs(): Vec2**
-  - Returns a vector of absolute values: `(abs(x), abs(y))`.
+- **abs()**  
+  Component-wise absolute value of the vector.
 
-- **normalize(): Vec2**
-  - Returns a unit vector in the same direction. If magnitude is `0`, returns `(1,0)`.
+- **normalize()**  
+  Returns a new vector in the same direction but with magnitude 1.
 
-- **normal(to: Vec2): Vec2**
-  - A convenience to find a normalized normal vector from `this` to `to`, then rotate -90°.
+- **normal(to)**  
+  Returns a vector normal to the line from `this` to `to`, effectively  
+  $$
+  [(\mathbf{v} - \mathbf{to}).\text{normalize}()].\text{rotate}\bigl(-\tfrac{\pi}{2}\bigr).
+  $$
 
-- **multiplyV(v: Vec2): Vec2**
-  - A complex multiply operation for 2D vectors re-interpreted as complex numbers:  
-    \[
-      (x, y) \times (v.x, v.y) = (x * v.x - y * v.y, x * v.y + y * v.x).
-    \]
+- **multiplyV(v)**  
+  Treats `v` as a complex number and multiplies `(x + i y)(v.x + i v.y)`.  
+  This is used for certain 2D transforms (like rotation in complex form).
 
-- **multiply(n: number): Vec2**
-  - Scalar multiplication by `n`.
+- **multiply(n)**  
+  Scalar multiplication.
 
-- **ang(): number**
-  - Returns the angle of this vector in radians relative to the positive x-axis (`atan2(y, x)`).
+- **ang()**  
+  Returns $ \arctan2(y, x) $.
 
-- **add(v: Vec2): Vec2**
-  - Vector addition.
+- **add(v), subtract(v)**  
+  Vector addition and subtraction.
 
-- **subtract(v: Vec2): Vec2**
-  - Vector subtraction.
+- **distanceTo(v)**  
+  Distance between this vector and `v`.
 
-- **distanceTo(v: Vec2): number**
-  - Euclidean distance to another vector `v`.
+- **angTo(v)**  
+  Angle from this vector to `v` in polar coordinates.
 
-- **angTo(v: Vec2): number**
-  - Angle from `v` to this vector (`(this - v).ang()`).
+- **onSegment(v1, v2)**  
+  Checks if this vector is on the line segment between `v1` and `v2` within a small numerical buffer.
 
-- **onSegment(v1: Vec2, v2: Vec2): boolean**
-  - Checks if this point lies on the line segment from `v1` to `v2` (with a small buffer).
+- **closestToLine(v1, v2)**  
+  Returns the point on the line `(v1 - v2)` closest to this vector. Useful for collision computations.
 
-- **closestToLine(v1: Vec2, v2: Vec2): Vec2**
-  - Returns the closest point on the line `(v1, v2)` to this vector. Does not clamp to the segment.
+- **orientation(v1, v2)**  
+  Returns orientation: 0 if collinear, 1 or -1 depending on left or right turn.
 
-- **orientation(v1: Vec2, v2: Vec2): number**
-  - Computes orientation of `this` w.r.t line `(v1 -> v2)`.  
-  - `0` if collinear (within `epsilon`), `1` if to one side, `-1` if to the other side.
+- **static fromPolar(r, ang)**  
+  Creates a vector from polar coordinates $(r, \text{ang})$:
+  $$
+  (\, r \cos(\text{ang}), \, r \sin(\text{ang}) \,)
+  $$
 
-- **copy(): Vec2**
-  - Returns a shallow copy of this vector.
-
-**Static methods**:
-
-- **Vec2.fromPolar(r: number, ang: number): Vec2**
-  - Creates a vector from a polar coordinate `(r, ang)`.
-
-- **Vec2.copy(opts: { x?: number, y?: number }): Vec2**
-  - Creates a `Vec2` from an object with optional `x` and `y` fields (defaults to `(0,0)` if missing).
-
----
-
-### f2.World
-
-Manages all bodies (both dynamic and static), constraints, collision filtering, and the simulation step.
-
-```js
-f2.World = class {
-    constructor(opts) { ... }
-    setContactFilter(f) { ... }
-    setContactListener(f) { ... }
-    doContactFilter(manifold) { ... }
-    doContactListener(manifold) { ... }
-    dimensionsInMeters() { ... }
-    transform(ctx, func) { ... }
-    displayRect(ctx, min, max, delT) { ... }
-    display(ctx, delT) { ... }
-    updateDynamicHashGrid() { ... }
-    getGrid(pos) { ... }
-    addBody(b) { ... }
-    removeBody(b) { ... }
-    addConstraint(c) { ... }
-    removeConstraint(c) { ... }
-    getDynamicIntersects(body) { ... }
-    getStaticIntersects(body) { ... }
-    step(t) { ... }
-};
-```
-
-**Constructor**:
-
-- **constructor(opts?: object)**
-  - **gravity**: (default `0`) gravity in the Y-direction.
-  - **scale**: (default `20`) a scale factor for rendering (pixels per meter).
-  - **gridSize**: (default `20`) grid cell size for broad-phase partitioning.
-  - **time**: (default `0`) simulation time tracker.
-
-- It initializes:
-  - `allBodies`, `staticBodies`, `dynamicBodies` (maps from ID to body).
-  - `staticBodiesRegions`, `dynamicBodiesRegions` (`f2.HashGrid`s for each).
-  - `nextId` for generating unique body IDs.
-  - `constraints` map for constraints.
-
-**Methods**:
-
-- **setContactFilter(f: (obj: {A, B}) => boolean)**
-  - Sets a function that can filter collisions. If it returns `false`, collision is ignored.
-
-- **setContactListener(f: (obj: collisionData) => void)**
-  - Sets a function that is called on valid collisions after contact resolution.
-
-- **doContactFilter(manifold)**
-  - Internally calls the set contact filter if present.
-
-- **doContactListener(manifold)**
-  - Internally calls the set contact listener if present.
-
-- **dimensionsInMeters(): Vec2**
-  - Utility for computing `(innerWidth, innerHeight) / scale`. (Browser-specific usage.)
-
-- **transform(ctx: CanvasRenderingContext2D, func: () => void)**
-  - Saves canvas context, scales by `this.scale`, calls `func()`, then restores.
-  - Convenient for drawing in "physics meter" units.
-
-- **displayRect(ctx, min, max, delT=0)**
-  - Efficiently displays only static/dynamic bodies in the rectangular region `(min, max)`.
-  - Uses the hash grid to find relevant bodies.
-
-- **display(ctx, delT=0)**
-  - Renders all static and dynamic bodies to the canvas.
-
-- **updateDynamicHashGrid()**
-  - Clears and repopulates `dynamicBodiesRegions` with all dynamic bodies based on their positions.
-
-- **getGrid(pos: Vec2): Vec2**
-  - Converts a position to integer grid coordinates by dividing by `gridSize` and flooring.
-
-- **addBody(b: f2.Body)**
-  - Assigns a unique ID, stores it in `allBodies`.
-  - If `b.mass == Infinity`, treats it as static, storing in `staticBodies` & corresponding hash regions.
-  - Otherwise, stores in `dynamicBodies`.
-
-- **removeBody(b: f2.Body)**
-  - Removes from `allBodies`, and from `staticBodies` or `dynamicBodies`.
-  - Cleans up the hash grid references.
-
-- **addConstraint(c: f2.Constraint)**
-  - Creates a unique constraint ID, stores it in `constraints`.
-
-- **removeConstraint(c: f2.Constraint)**
-  - Removes from `constraints`.
-
-- **getDynamicIntersects(body: f2.Body): Array<string>**
-  - Returns the set of dynamic body IDs near `body` based on the hash grid.
-
-- **getStaticIntersects(body: f2.Body): Array<string>**
-  - Returns the set of static body IDs near `body` based on the hash grid.
-
-- **step(t: number)**
-  - Advances the simulation by time `t`.
-  - Increments `this.time`.
-  - Calls each constraint's `step(t)` to apply forces/impulses.
-  - Applies gravity impulses to each dynamic body.
-  - Integrates each dynamic body (position, velocity).
-  - Repeats collision checks (broad-phase with hash grid, then narrow-phase) up to 10 iterations or until no more movement from collisions.
+- **copy()**, **static copy(opts)**  
+  Returns a new `Vec2` duplicating this or from an object `{x, y}`.
 
 ---
 
-### f2.Shape (abstract)
+## f2.Shape
 
-Abstract base class for shapes. Contains static serialization/deserialization utilities.
+**Path:** `f2.Shape`
+
+An abstract base class for geometric shapes. Every shape has a type identifier `sType` (`"c"` for circle, `"p"` for polygon).
 
 ```js
 f2.Shape = class {
+    sType;
     constructor(sType) { ... }
     static serialize(p) { ... }
     static deserialize(p) { ... }
+    static intersectShapes(APoly, BPoly) { ... }
     getAreaMoment() { ... }
-};
+}
 ```
 
-**Properties**:
+### Notable Static Methods
 
-- **sType**: a string identifying shape type. For example, `"c"` for circle, `"p"` for polygon.
+- **intersectShapes(APoly, BPoly)**  
+  Checks intersection between two shapes in their polygon-like forms (the library represents circles as approximate polygons internally during collision checks).
 
-**Methods**:
+- **serialize(p), deserialize(p)**  
+  For converting to and from plain objects.
 
-- **getAreaMoment(): { area: number, moment: number }**
-  - Each subclass overrides this to compute area and second moment of area (used in body mass/inertia calculations).
+### getAreaMoment()
 
-- **static serialize(p: Shape): object**
-  - Serializes a shape to a plain object.
+Each shape can compute:
+- **area** ($A$)
+- **moment** ($I_\text{about origin}$)
 
-- **static deserialize(p: object): f2.Shape**
-  - Deserializes an object to the correct shape subclass (`f2.Circle` or `f2.Polygon`).
+used for mass-inertia computations.
 
 ---
 
-#### f2.Circle
+## f2.Circle
 
-Represents a circle shape with a center and radius.
+**Path:** `f2.Circle`  
+Extends **Shape** with `sType = "c"`.
 
 ```js
 f2.Circle = class extends f2.Shape {
     constructor(center, radius) { ... }
-    static serialize(p) { ... }
-    static deserialize(obj) { ... }
     display(ctx) { ... }
     getAreaMoment() { ... }
     extremePoint(dir) { ... }
     transform(placement) { ... }
     findAxisOfLeastPen(b) { ... }
-};
+}
 ```
 
-**Constructor**:
+### Constructor
 
-- **constructor(center: Vec2, radius: number)**
-  - `center` is the circle center, `radius` is the circle radius.
-  - Automatically sets `min` and `max` bounding box.
+- **constructor(center, radius)**  
+  Creates a circle at `center` (a `Vec2`), with radius `radius`.
 
-**Methods**:
+### Methods
 
-- **static serialize(p: f2.Circle): object**
-- **static deserialize(obj: any): f2.Circle**
-  - Used for saving/loading.
+- **display(ctx)**  
+  Basic draw method (for debugging or demonstration).
+  
+- **getAreaMoment()**  
+  Returns an object with:
+  - `area = \pi r^2`
+  - `moment = \pi r^2 \left(\tfrac12 r^2 + \|\mathbf{center}\|^2\right)`  
 
-- **display(ctx: CanvasRenderingContext2D)**
-  - Draws a filled circle on the canvas.
+  This is a simplified approach to compute moment about the origin. If used in a rigid body, the shape is often considered with respect to a body’s reference frame.
 
-- **getAreaMoment(): { area: number, moment: number }**
-  - Computes:
-    \[
-      \text{area} = \pi r^2
-    \]
-    \[
-      \text{moment} = \pi r^2 \left(\frac{1}{2}r^2 + \|\text{center}\|^2\right)
-    \]
+- **extremePoint(dir)**  
+  Given a direction vector $\mathbf{dir}$, returns the farthest point on the circle along that direction, i.e.  
+  $$
+  \mathbf{center} + r\, \widehat{\mathbf{dir}}
+  $$
 
-- **extremePoint(dir: Vec2): Vec2**
-  - Returns the point on the circle furthest in direction `dir`.
+- **transform(placement)**  
+  Applies a rigid transform (rotation by `placement.angle` and translation by `placement.position`).
 
-- **transform(placement: {position: Vec2, angle: number}): f2.Circle**
-  - Returns a new circle whose center is rotated by `placement.angle` and translated by `placement.position`. Radius remains unchanged.
-
-- **findAxisOfLeastPen(b: f2.Shape): object**
-  - Implementation of the "Supporting-edge vs vertex" approach for collision. Returns a structure with:
-    - `normal` (penetration normal),
-    - `penetration` (penetration distance),
-    - `p1`, `p2` contact points.
+- **findAxisOfLeastPen(b)**  
+  Internal collision detection routine used by the library.
 
 ---
 
-#### f2.Polygon
+## f2.Polygon
 
-Represents a polygon shape defined by an array of vertices (`vs`).
+**Path:** `f2.Polygon`  
+Extends **Shape** with `sType = "p"`.
 
 ```js
 f2.Polygon = class extends f2.Shape {
     constructor(vs) { ... }
-    static serialize(p) { ... }
-    static deserialize(obj) { ... }
     display(ctx) { ... }
     getAreaMoment() { ... }
     extremePoint(dir) { ... }
     transform(placement) { ... }
     findAxisOfLeastPen(b) { ... }
-};
+}
 ```
 
-**Constructor**:
+### Constructor
 
-- **constructor(vs: Vec2[])**
-  - Stores vertices. Also computes `min` and `max` bounding box.
+- **constructor(vs)**  
+  Creates a polygon from an array of `Vec2` vertices, stored in `this.vs`.
 
-**Methods**:
+### Methods
 
-- **static serialize(p: f2.Polygon): object**
-- **static deserialize(obj: any): f2.Polygon**
-  - For saving/loading.
+- **display(ctx)**  
+  Draws the polygon in the provided canvas context.
 
-- **display(ctx: CanvasRenderingContext2D)**
-  - Draws a filled polygon.
+- **getAreaMoment()**  
+  Computes the (signed) polygon area and moment about the origin using polygon area and second-moment formulas. Returns an object `{ area, moment }`.
 
-- **getAreaMoment(): { area: number, moment: number }**
-  - Uses polygon area/inertia formula:
-    \[
-      \text{area} = \frac12 \sum (p_i \times p_{i+1})
-    \]
-    \[
-      \text{moment} = \frac{1}{12} \sum (p_i \times p_{i+1})(\dots)
-    \]
-  - Summation over edges.
+- **extremePoint(dir)**  
+  Returns the vertex with the maximum projection onto `dir`.
 
-- **extremePoint(dir: Vec2): Vec2**
-  - Returns the vertex with the largest dot product in direction `dir`.
+- **transform(placement)**  
+  Rotates each vertex around the origin by `placement.angle` and then translates by `placement.position`, returning a new `Polygon`.
 
-- **transform(placement: {position: Vec2, angle: number}): f2.Polygon**
-  - Returns a new polygon with all vertices rotated and translated.
-
-- **findAxisOfLeastPen(b: f2.Shape): object**
-  - Finds the axis (edge normal) of least penetration for polygon vs circle or polygon vs polygon collisions.
+- **findAxisOfLeastPen(b)**  
+  Used in the SAT (Separating Axis Theorem) approach to find collision penetration and normal.
 
 ---
 
-### f2.Body
+## f2.Rectangle
 
-Represents a rigid body composed of one or more shapes. The body has mass, inertia, friction coefficients, elasticity, position, velocity, angle, and angular velocity.
+**Path:** `f2.Rectangle`  
+Extends **f2.Polygon**.
+
+```js
+f2.Rectangle = class extends f2.Polygon{
+    constructor(width, height, center = new f2.Vec2(0, 0)) { ... }
+}
+```
+
+### Constructor
+
+- **constructor(width, height, center)**  
+  Creates a rectangle of dimensions `(width, height)`, centered at `center`. Internally represented as a 4-vertex polygon.
+
+---
+
+## f2.Fixture
+
+**Path:** `f2.Fixture`
+
+A **Fixture** binds a **Shape** (Circle, Polygon, etc.) to a **Body** with additional physical properties like friction, elasticity, and collision filtering (category bits and mask bits).
+
+```js
+f2.Fixture = class{
+    constructor(opts) { ... }
+    static serialize() { ... }
+    static deserialize(fix) { ... }
+    setToBody(body) { ... }
+    getMin() { ... }
+    getMax() { ... }
+    getCenter() { ... }
+    transform() { ... }
+
+    static checkBitIntersect(fix1, fix2) { ... }
+    static intersect(fix1, fix2) { ... }
+    static handleIntersectInfo(fix1, fix2, intersectInfo) { ... }
+}
+```
+
+### Constructor
+
+- **constructor(opts)**  
+  - `opts.shape`: a serialized shape object to be deserialized into a `Circle`, `Polygon`, etc.  
+  - `opts.kFriction`: kinetic friction coefficient ($\mu_k$).  
+  - `opts.sFriction`: static friction coefficient ($\mu_s$).  
+  - `opts.elasticity`: restitution factor.  
+  - `opts.categoryBits, opts.maskBits`: collision filter bits.  
+
+### Methods
+
+- **static serialize()**, **static deserialize(fix)**  
+  Serialize or deserialize a fixture.  
+
+- **setToBody(body)**  
+  Binds this fixture to a given `Body`.  
+
+- **getMin(), getMax()**  
+  Returns the AABB corners of the **transformed** shape.  
+
+- **getCenter()**  
+  Returns the midpoint `( (min_x + max_x)/2, (min_y + max_y)/2 )` of the shape in world coordinates.  
+
+- **transform()**  
+  Recomputes the shape’s world transform given the body’s current position and angle.
+
+- **static checkBitIntersect(fix1, fix2)**  
+  Returns `true` if their category and mask bits allow collision.  
+
+- **static intersect(fix1, fix2)**  
+  Calls the shape- vs.-shape intersection test and handles the collision response.  
+
+- **static handleIntersectInfo(fix1, fix2, intersectInfo)**  
+  Implements collision resolution:  
+  1. Positional correction for penetration.  
+  2. Velocity impulse to separate.  
+  3. Application of friction if there is relative tangent motion.
+
+---
+
+## f2.Body
+
+**Path:** `f2.Body`
+
+A rigid body with position, velocity, angle, angular velocity, mass, and inertia. It can contain one or more fixtures.  
 
 ```js
 f2.Body = class {
@@ -474,333 +429,264 @@ f2.Body = class {
     static serializeDynamics(bd) { ... }
     static deserialize(bd) { ... }
     updateDynamics(opts) { ... }
-    setUserData(k, v) { ... }
-    getUserData(k) { ... }
+    addFixture(fix) { ... }
     createPlacement(delT) { ... }
-    setCustomDisplayPlacement(f) { ... }
+    setCustomDisplay(f) { ... }
     display(ctx, delT) { ... }
     defaultDisplayPlacement(ctx, placement) { ... }
     displayPlacement(ctx, placement) { ... }
-    generateShapes() { ... }
-    getMinMax() { ... }
+    moveBody(v, a) { ... }
     getVelocity(r) { ... }
     getPosition(r) { ... }
     applyImpulse(imp, r) { ... }
     applyAngImpulse(t) { ... }
     applyMassDisplacement(massLength, r) { ... }
+    static solvePosition(A, B, rA, rB, n, dlength) { ... }
+    static solveVelocity(A, B, rA, rB, n, dvel) { ... }
+    static applyImpulses(A, B, rA, rB, imp) { ... }
     integrate(t) { ... }
 };
 ```
 
-**Constructor**: 
+### Constructor
 
-- **constructor(opts?: object)**
-  - `shapes`: array of serialized shape objects. Each shape is deserialized and stored.
-  - `mass`: total mass (defaults to area if not provided).
-  - `inertia`: moment of inertia (defaults computed from shapes).
-  - `kFriction`, `sFriction`: kinetic and static friction coefficients (defaults to 0.1).
-  - `elasticity`: restitution coefficient (defaults to 0.3).
-  - `position`: initial position (Vec2).
-  - `velocity`: initial velocity (Vec2).
-  - `angle`: initial orientation (radians).
-  - `angleVelocity`: initial angular velocity (radians/sec).
-  - If `mass` is set to `Infinity`, the body is considered static (unmovable).
+- **constructor(opts)**  
+  - `opts.position`: initial position (Vec2).  
+  - `opts.velocity`: initial velocity (Vec2).  
+  - `opts.angle`: initial angle (radians).  
+  - `opts.angleVelocity`: initial angular velocity (radians/sec).  
+  - `opts.mass`: total mass. If `Infinity`, body is treated as static.  
+  - `opts.inertia`: moment of inertia about the center.  
+  - `opts.fixtures`: array of serialized fixture definitions.  
+  - `opts.zDisplay`: optional draw order in a custom scene.  
 
-**Properties**:
+Internally, the body calculates mass and inertia from the sum of its fixtures (by shape areas or user override).
 
-- `shapes`: array of `f2.Shape` objects.
-- `mass`, `inertia`, `kFriction`, `sFriction`, `elasticity`.
-- `position`, `velocity`, `angle`, `angleVelocity`.
-- `_velocity`, `_angleVelocity`: used internally to keep track of velocity states before integration.
-- `customDisplayPlacement`: optional function for custom drawing.
-- `userData`: an object for user-defined data.
+### Methods
 
-**Methods**:
+- **addFixture(fix)**  
+  Adds a `Fixture` to the body and sets the fixture’s `body` reference.  
 
-- **static serialize(bd: f2.Body): object**
-  - Returns a plain object with shapes, mass, inertia, friction, elasticity, position, velocity, angle, angleVelocity.
-  
-- **static serializeDynamics(bd: f2.Body): object**
-  - Returns only the dynamic state (`position`, `velocity`, `angle`, `angleVelocity`).
+- **createPlacement(delT)**  
+  Predicts the body’s position at `time + delT` without modifying the actual state.
 
-- **static deserialize(obj: any): f2.Body**
-  - Constructs a new `f2.Body` from a plain object.
+- **display(ctx, delT)**  
+  Renders the body in a canvas 2D context. Optionally uses a `delT` for interpolation.
 
-- **updateDynamics(opts: { position, velocity, angle, angleVelocity })**
-  - Updates the dynamic parameters of the body with the given values.
+- **moveBody(v, a)**  
+  Moves the body to position `v` and sets the angle to `a`. Updates all fixture transforms accordingly.
 
-- **setUserData(k: string, v: any)**
-  - Attaches user-defined data to the body.
+- **getVelocity(r)**  
+  Returns the velocity of a point on the body offset by `r` from the body’s center. For an angular velocity $\omega$,
+  $$
+  \mathbf{v}(r) = \mathbf{v}_\text{cm} + \omega\, \mathbf{r}^\perp
+  $$
+  where $\mathbf{r}^\perp$ is $\mathbf{r}$ rotated by 90 degrees.
 
-- **getUserData(k: string): any**
-  - Retrieves user-defined data.
+- **applyImpulse(imp, r)**  
+  Applies an impulse $\mathbf{imp}$ at offset `r`. Updates both linear and angular velocities.
 
-- **createPlacement(delT: number): { position: Vec2, angle: number }**
-  - Predicts the next position/orientation given `delT` but does not update the body.
+- **applyMassDisplacement(massLength, r)**  
+  Used to correct positions when shapes overlap (positional correction).
 
-- **setCustomDisplayPlacement(f: (ctx, placement) => void)**
-  - Assigns a custom function for drawing the body.
+- **static solvePosition(A, B, rA, rB, n, dlength)**  
+  Correct positions of two bodies `A` and `B` given a normal `n` and a penetration distance.  
 
-- **display(ctx, delT=0)**
-  - By default, calculates the predicted placement and calls `displayPlacement`.
+- **static solveVelocity(A, B, rA, rB, n, dvel)**  
+  Calculates an impulse magnitude to correct velocity along a normal direction.
 
-- **defaultDisplayPlacement(ctx, placement)**
-  - Default method to draw the shapes (translates and rotates the canvas, draws each shape).
+- **static applyImpulses(A, B, rA, rB, imp)**  
+  Applies equal and opposite impulses to `A` and `B`.
 
-- **displayPlacement(ctx, placement)**
-  - Dispatches to `customDisplayPlacement` if provided, otherwise uses the default.
-
-- **generateShapes(): f2.Shape[]**
-  - Transforms each local shape by the current body transform and returns them.
-
-- **getMinMax(): { min: Vec2, max: Vec2 }**
-  - Returns the combined bounding box in world coordinates, by generating shapes.
-
-- **getVelocity(r: Vec2): Vec2**
-  - Velocity at a point offset `r` from the body center, including angular velocity:  
-    \[
-      \text{velocity}(r) = this.velocity + rCrossZ(\text{angleVelocity}).
-    \]
-
-- **getPosition(r: Vec2): Vec2**
-  - Position of a local offset `r` in world coordinates.
-
-- **applyImpulse(imp: Vec2, r: Vec2)**
-  - Immediately applies a linear + angular impulse to the body.
-
-- **applyAngImpulse(t: number)**
-  - Immediately applies an angular impulse (torque-like).
-
-- **applyMassDisplacement(massLength: Vec2, r: Vec2)**
-  - Adjusts position and angle to resolve interpenetration (positional correction).
-
-- **integrate(t: number)**
-  - Integrates linear and angular velocities over time `t`, updating position/angle.
+- **integrate(t)**  
+  Moves the body forward in time by `t`:
+  $$
+  \mathbf{p} \leftarrow \mathbf{p} + \mathbf{v}\, t, \quad
+  \theta \leftarrow \theta + \omega\, t
+  $$
 
 ---
 
-#### f2.CircleBody
+## f2.Constraint
 
-A convenience subclass of `f2.Body` that creates a single `f2.Circle` shape.
+**Path:** `f2.Constraint`
 
-```js
-f2.CircleBody = class extends f2.Body {
-    constructor(opts) { ... }
-};
-```
-
-- **constructor(opts)**
-  - Expects `opts.radius` and sets up `shapes: [new f2.Circle(...)]`.
-
----
-
-#### f2.PolyBody
-
-A convenience subclass of `f2.Body` that creates a single `f2.Polygon` shape.
-
-```js
-f2.PolyBody = class extends f2.Body {
-    constructor(opts) { ... }
-};
-```
-
-- **constructor(opts)**
-  - Expects `opts.points` (array of vertices).
-  - Creates one polygon shape from them.
-
----
-
-#### f2.RectBody
-
-A rectangle convenience subclass. Inherits from `f2.PolyBody`.
-
-```js
-f2.RectBody = class extends f2.PolyBody {
-    constructor(opts) { ... }
-};
-```
-
-- **constructor(opts)**
-  - Expects `opts.length` (X dimension) and `opts.width` (Y dimension).
-  - Automatically creates a rectangle polygon centered on the origin with half extents.
-
----
-
-### f2.Constraint
-
-Implements a simple spring-like constraint between two bodies at offsets `r1` and `r2`.
+Implements a simple spring-like constraint or distance constraint between two bodies.
 
 ```js
 f2.Constraint = class {
     constructor(opts) { ... }
     step(dt) { ... }
-};
+}
 ```
 
-**Constructor**:
+### Constructor
 
-- **constructor(opts: { body1, r1, body2, r2, restLength?, kconstant?, cdamp? })**
-  - `body1`, `body2`: the two bodies to connect.
-  - `r1`, `r2`: anchor points in each body’s local space.
-  - `restLength`: the desired distance between anchors. Defaults to the distance at the time of creation.
-  - `kconstant`: the spring constant. Defaults to a value based on inverse mass.
-  - `cdamp`: damping factor. Defaults to `2 * sqrt(kconstant / massFactor)` for critical damping.
+- **constructor(opts)**
+  - `opts.body1`, `opts.body2`: the two bodies to constrain.
+  - `opts.r1`, `opts.r2`: anchor offsets relative to each body’s center.
+  - `opts.restLength`: the desired distance between the anchor points.
+  - `opts.kconstant`: spring constant $k$.
+  - `opts.cdamp`: damping factor.
 
-**Methods**:
+The library infers some defaults if these are omitted, e.g. computing `restLength` from the distance between anchor points at creation, or `kconstant` from the combined mass/inertia.
 
-- **step(dt: number)**
-  - Called each time step.  
-  - Computes the current anchor positions in world space, the relative velocity, and applies impulses to maintain/rest the spring at `restLength`, with damping.
+### step(dt)
+
+Applies impulses to keep the bodies close to `restLength`. The force is akin to Hooke's law plus damping:
+$$
+F = -k\, ( \text{stretch} ) - c\, (\text{relative velocity})
+$$
 
 ---
 
-## Static Functions
+## f2.World
 
-### f2.intersectShapes(A, B)
+**Path:** `f2.World`
 
-```js
-f2.intersectShapes = function(APoly, BPoly) { ... }
-```
-
-- Performs a narrow-phase check (SAT or specialized circle edge check) between two **already transformed** shapes (`f2.Circle` or `f2.Polygon`).
-- Returns an object `{ normal, penetration, p1, p2 }` describing the axis of least penetration, or a default with zero penetration if there's no overlap.
-
-### f2.handleIntersectInfo(A, B, intersectInfo)
+Manages all **Body** objects, their collisions, and constraints. It contains separate hash grids for static and dynamic fixtures.
 
 ```js
-f2.handleIntersectInfo = function(A, B, intersectInfo) { ... }
+f2.World = class {
+    constructor(opts) { ... }
+    addContactListener(f) { ... }
+    display(ctx, delT) { ... }
+    addBody(b) { ... }
+    removeBody(b) { ... }
+    addConstraint(c) { ... }
+    removeConstraint(c) { ... }
+    step(t) { ... }
+}
 ```
 
-- Takes intersect info from `f2.intersectShapes` and resolves the collision if there is penetration.
-- Returns an object describing the collision resolution (impulses applied, whether it moved, etc.).
+### Constructor
 
-### f2.intersect(A, B)
+- **constructor(opts)**
+  - `opts.gravity`: scalar gravitational acceleration (defaults to 0).
+  - `opts.gridSize`: used for the hash grid cell size.
+  - `opts.time`: initial simulation time.
 
-```js
-f2.intersect = function(A, B) { ... }
-```
+Manages:
+- `this.bodies`: a map of all bodies in the world.
+- `this.fixtures`: references to fixtures (for broad-phase).
+- `this.constraints`: constraints in the system.
+- `this.contactListeners`: an array of callbacks invoked when collisions occur.
 
-- Convenience method that:
-  1. Transforms the local shapes of `A` and `B` to world coordinates.
-  2. For each shape pair, calls `f2.intersectShapes`.
-  3. Passes the results to `f2.handleIntersectInfo`.
-- Returns `{ moved, collisions }` where:
-  - `moved` is true if an impulse-based correction occurred.
-  - `collisions` is an array of collision records (one per shape pair that actually collided).
+### Methods
 
-### f2.solvePosition(A, B, rA, rB, n, dlength)
+- **addContactListener(f)**  
+  Registers a function `f(obj)` that is called on collisions. The `obj` (manifold) includes collision details: `normal`, `penetration`, `doesIntersect`, and references to the fixtures.
 
-```js
-f2.solvePosition = function(A, B, rA, rB, n, dlength) { ... }
-```
+- **display(ctx, delT)**  
+  Draws all bodies at an interpolated time `time + delT`.
 
-- Solves positional correction for interpenetration using the relative inverse mass (linear and angular).
-- `dlength` is the penetration distance along `n`.
-- Returns the scalar amount of displacement applied along `n`.
+- **addBody(b), removeBody(b)**  
+  Inserts or removes a body (and its fixtures) from the world. Static fixtures go in `staticFixturesRegions`; dynamic ones go in `dynamicFixturesRegions`.
 
-### f2.solveVelocity(A, B, rA, rB, n, dvel)
+- **addConstraint(c), removeConstraint(c)**  
+  Adds or removes a constraint to the world.
 
-```js
-f2.solveVelocity = function(A, B, rA, rB, n, dvel) { ... }
-```
+- **step(t)**  
+  Advances the world by `t` seconds:
+  1. Updates constraints.
+  2. Applies gravity to dynamic bodies.
+  3. Integrates body motion.
+  4. Updates the dynamic fixtures’ hash grid.
+  5. Performs collision detection and resolution (up to a certain iteration count).
+  6. Calls `contactListeners` for each collision.
 
-- Given a relative velocity delta `dvel` along the normal `n`, computes the required impulse that satisfies the constraints of mass + inertia.
+---
 
-### f2.applyImpulses(A, B, rA, rB, imp)
+## f2 Utilities
 
-```js
-f2.applyImpulses = function(A, B, rA, rB, imp) { ... }
-```
-
-- Applies the impulse vector `imp` at `rA` to body `A` and the opposite impulse at `rB` to body `B`.
-
-### f2.combinedElasticity(e1, e2)
+These free functions appear at the bottom of the file:
 
 ```js
 f2.combinedElasticity = function(e1, e2) { ... }
-```
-
-- Returns `Math.min(e1, e2)` – the combined coefficient of restitution.
-
-### f2.combinedFrictionCoef(f1, f2)
-
-```js
 f2.combinedFrictionCoef = function(f1, f2) { ... }
-```
-
-- Returns \(\sqrt{f1^2 + f2^2}\) – a common approach to combining friction.
-
-### f2.AABBvsAABB(Amin, Amax, Bmin, Bmax)
-
-```js
 f2.AABBvsAABB = function(Amin, Amax, Bmin, Bmax) { ... }
 ```
 
-- Quick bounding box overlap test. 
-- Returns `true` if `Amin->Amax` overlaps with `Bmin->Bmax`.
+- **combinedElasticity(e1, e2)**  
+  Returns the minimum of two restitution (elasticity) coefficients.
 
-### f2.stringify(obj)
+- **combinedFrictionCoef(f1, f2)**  
+  Returns  
+  $$
+  \sqrt{f1^2 + f2^2}
+  $$  
 
-```js
-f2.stringify = function(obj) { ... }
-```
-
-- A JSON serializer that converts `Infinity` to a special string token `"Infinity2374852783457827"`.
-
-### f2.parse(str)
-
-```js
-f2.parse = function(str) { ... }
-```
-
-- Reverses `f2.stringify`, converting the special string token back to `Infinity`.
+- **AABBvsAABB(Amin, Amax, Bmin, Bmax)**  
+  Checks if two axis-aligned bounding boxes (AABB) overlap by comparing their center distances to half their dimensions.
 
 ---
 
-## Example Usage
+# Usage Example
+
+Below is a very simple usage snippet to illustrate how you might create a world, add a body with a circular fixture, and step the simulation:
 
 ```js
-// Create a physics world
-let world = new f2.World({ gravity: 9.8, scale: 30, gridSize: 5 });
+import { f2 } from "./f2.js";
 
-// Create a static ground
-let ground = new f2.RectBody({
-  length: 10,
-  width: 1,
-  mass: Infinity,        // infinite mass => static body
-  position: new f2.Vec2(0, -3)
+// Create a world with gravity = 9.8 m/s^2
+const world = new f2.World({ gravity: 9.8, gridSize: 20 });
+
+// Create a body
+const myBody = new f2.Body({
+  position: {x: 0, y: 0},
+  mass: 1,
+  fixtures: [
+    {
+      shape: { sType: "c", center: { x: 0, y: 0 }, radius: 1 },
+      kFriction: 0.1,
+      sFriction: 0.2,
+      elasticity: 0.3
+    }
+  ]
 });
-world.addBody(ground);
 
-// Create a falling circle
-let circle = new f2.CircleBody({
-  radius: 0.5,
-  position: new f2.Vec2(0, 5),
-  mass: 1
+// Add body to the world
+world.addBody(myBody);
+
+// Add a contact listener
+world.addContactListener((info) => {
+  if (info.doesIntersect) {
+    console.log("Collision detected:", info);
+  }
 });
-world.addBody(circle);
 
-// Step the simulation
-function animate() {
-  // Step with a fixed timestep
+// In your animation loop or main update
+function update() {
+  // Step the physics by (e.g.) 1/60 of a second
   world.step(1/60);
 
-  // Clear the canvas
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  // Render
+  // For instance, using canvas:
+  // const ctx = canvas.getContext("2d");
+  // ctx.clearRect(0, 0, canvas.width, canvas.height);
+  // world.display(ctx);
 
-  // Draw everything
-  world.transform(ctx, () => {
-    world.display(ctx);
-  });
-
-  requestAnimationFrame(animate);
+  requestAnimationFrame(update);
 }
-
-animate();
+update();
 ```
+
+In this example:
+1. We create a `World` object with standard Earth gravity.
+2. We create a `Body` containing a single `Circle` fixture of radius 1.
+3. We add the body to the world, register a contact listener, and start an update loop.  
+
+Use your own rendering logic as needed. The library only provides basic canvas drawing for demonstration; you can customize or replace it as desired.
 
 ---
 
-## License
+# Summary
 
-The **f2** library does not contain explicit license text in the snippet provided. You may include or apply your own licensing terms as needed. If this code is part of a larger project, please refer to that project’s license.
+- **`f2.Vec2`** provides 2D vector operations.  
+- **`f2.Shape`** and its subclasses (**`Circle`**, **`Polygon`**, **`Rectangle`**) handle geometry and AABBs.  
+- **`f2.Fixture`** attaches shapes to bodies with friction, elasticity, and collision filtering.  
+- **`f2.Body`** is a rigid body with position, angle, velocity, and inertia.  
+- **`f2.Constraint`** can simulate springs or distance constraints.  
+- **`f2.World`** manages bodies, constraints, collision detection, and time stepping.  
+
+This library is intended for 2D physics simulations, providing a straightforward but flexible approach to handle collisions, friction, restitution, and constraints in your JavaScript projects.
